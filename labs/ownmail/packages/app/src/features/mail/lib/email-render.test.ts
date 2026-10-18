@@ -244,7 +244,7 @@ describe('shadowStyleText', () => {
 		expect(css).not.toContain('invert(')
 		expect(css).not.toContain('data-dark-invert')
 		expect(css).toContain(
-			':host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:#1a1a1a;color-scheme:light;}',
+			':host(:is([data-email-strategy="paper"],[data-email-strategy="original"])){--ownmail-email-link-color:#075985;color:var(--email-ink,#1a1a1a);color-scheme:light;}',
 		)
 		expect(css).toContain(
 			':host([data-email-strategy="paper"]) .email-root,:host([data-email-strategy="original"][data-color-mode="original"]) .email-root{background:var(--ownmail-email-canvas,#fff)!important;}',
@@ -252,6 +252,13 @@ describe('shadowStyleText', () => {
 		expect(css).toContain(':host([data-email-direction="rtl"]){direction:rtl;}')
 		expect(css).toContain(':host([data-email-pan]){overflow-x:auto!important;overflow-y:hidden!important;')
 		expect(css).toContain('padding:0;')
+	})
+
+	it('sets a prose message’s paragraphs 12px apart with none above the first, below the sender’s own CSS', () => {
+		const css = shadowStyleText()
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(p){margin:0 0 12px;}')
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(p:last-child){margin-bottom:0;}')
+		expect(css).toContain(':host([data-email-prose]) .email-root :where(strong, b){font-weight:600;}')
 	})
 
 	it('sets the 16px / 1.6 reading baseline on the host as an overridable default', () => {

@@ -1,6 +1,9 @@
 import type { Message } from '@nylas-labs/cli-kit/v3'
 import { hashKey, type QueryClient, type QueryKey } from '@tanstack/react-query'
+import { type Person, toPerson } from '../lib/thread-reading-model.js'
 import {
+	isSessionMailLookup,
+	MAIL_HEADER_LOOKUP_KINDS,
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
 	type MailDraft,
@@ -74,6 +77,22 @@ export function sentThreadFromMessage(message: MailMessage): MailThread {
 	}
 }
 
+/**
+ * A conversation you just replied in: it stays in every folder it was in
+ * (Inbox included), joins Sent, and ends with your message.
+ */
+export function threadAfterSend(current: MailThread, message: MailMessage): MailThread {
+	return {
+		...current,
+		snippet: message.snippet ?? current.snippet,
+		message_ids: unique([...(current.message_ids ?? []), message.id]),
+		latest_draft_or_message: message,
+		latest_message_sent_date: message.date ?? current.latest_message_sent_date,
+		has_attachments: Boolean(current.has_attachments) || Boolean(message.attachments?.length),
+		folders: unique([...(current.folders ?? []), ...(message.folders ?? []), 'sent']),
+	}
+}
+
 export function dedupeThreads(threads: readonly MailThread[]): MailThread[] {
 	const seen = new Set<string>()
 	return threads.filter((thread) => {
@@ -135,6 +154,10 @@ function effectThreadId(effect: MailCacheEffect): string | undefined {
 			return effect.threadId
 		case 'thread.reconciled':
 			return effect.thread.id
+		case 'draft.sent':
+			return (
+				effect.thread?.id ?? (effect.message ? (effect.message.thread_id ?? effect.message.id) : undefined)
+			)
 		default:
 			return undefined
 	}
@@ -143,7 +166,9 @@ function effectThreadId(effect: MailCacheEffect): string | undefined {
 function nextThreadForEffect(effect: MailCacheEffect, current?: MailThread): MailThread | undefined {
 	switch (effect.type) {
 		case 'draft.sent':
-			return effect.thread ?? (effect.message ? sentThreadFromMessage(effect.message) : undefined)
+			if (effect.thread) return effect.thread
+			if (!effect.message) return undefined
+			return current ? threadAfterSend(current, effect.message) : sentThreadFromMessage(effect.message)
 		case 'thread.reconciled':
 			return effect.thread
 		case 'thread.starred': {
@@ -219,12 +244,12 @@ export function updateFolderCounts(
 				folder.id === 'drafts' ? { ...folder, total_count: clampCount(folder.total_count, 1) } : folder,
 			)
 		case 'draft.sent': {
-			const sentThread = nextThreadForEffect(effect)
+			const sentThread = nextThreadForEffect(effect, beforeThread)
 			return folderTransition(
 				folders.map((folder) =>
 					folder.id === 'drafts' ? { ...folder, total_count: clampCount(folder.total_count, -1) } : folder,
 				),
-				undefined,
+				beforeThread,
 				sentThread,
 			)
 		}
@@ -274,6 +299,28 @@ function entryThread(data: unknown, queryKey: QueryKey, threadId: string): MailT
 	return undefined
 }
 
+/**
+ * People this mailbox writes with, from the conversations already in the list
+ * cache: the lookalike-sender check compares a sender's name against them.
+ */
+export function cachedCorrespondents(queryClient: QueryClient, owner: string): Person[] {
+	const people = new Map<string, Person>()
+	for (const [, data] of queryClient.getQueriesData<MailThreadListData>({
+		queryKey: mailKeys.threadLists(),
+	})) {
+		for (const page of data?.pages ?? []) {
+			for (const thread of page.threads) {
+				for (const participant of thread.participants ?? []) {
+					const person = toPerson(participant, owner)
+					const key = person.email.toLowerCase()
+					if (key && person.name && !person.isOwner && !people.has(key)) people.set(key, person)
+				}
+			}
+		}
+	}
+	return [...people.values()]
+}
+
 export function findCachedThread(
 	client: QueryClient,
 	threadId: string,
@@ -286,11 +333,64 @@ export function findCachedThread(
 	return undefined
 }
 
+/**
+ * What a list row shows once a draft is discarded: the newest message of the
+ * thread the draft sat in, from a cached detail that holds the draft.
+ * Undefined when no loaded conversation holds it.
+ */
+function messageAfterDraft(client: QueryClient, draftId: string, root: QueryKey): MailMessage | undefined {
+	for (const [queryKey, data] of client.getQueriesData<MailThreadDetail>({ queryKey: root })) {
+		if (!isMailKey(queryKey, 'thread') || !data?.messages.some((message) => message.id === draftId)) continue
+		const latest = data.messages.findLast(
+			(message) => message.id !== draftId && message.ownmailDraft !== true,
+		)
+		if (latest) return { ...latest, thread_id: data.thread.id }
+	}
+	return undefined
+}
+
+/**
+ * A discarded draft leaves the rows it led ("Draft · to …" and its words):
+ * the row takes the thread's newest message when a loaded conversation knows
+ * it, else falls back to the thread's own snippet and people.
+ */
+function listWithoutDraft(
+	list: MailThreadListData,
+	draftId: string,
+	after: MailMessage | undefined,
+): MailThreadListData {
+	let changed = false
+	const pages = list.pages.map((page) => ({
+		...page,
+		threads: page.threads.map((thread) => {
+			const draftIds = (thread as { draft_ids?: string[] }).draft_ids
+			const led = thread.latest_draft_or_message?.id === draftId
+			if (!led && !draftIds?.includes(draftId)) return thread
+			changed = true
+			const {
+				latest_draft_or_message: latest,
+				draft_ids: _draftIds,
+				...rest
+			} = thread as MailThread & { draft_ids?: string[] }
+			const remaining = draftIds?.filter((id) => id !== draftId) ?? []
+			const kept = led ? (after?.thread_id === thread.id ? after : undefined) : latest
+			return {
+				...rest,
+				...(remaining.length > 0 ? { draft_ids: remaining } : {}),
+				...(kept ? { latest_draft_or_message: kept } : {}),
+				...(led && kept?.snippet ? { snippet: kept.snippet } : {}),
+			} as MailThread
+		}),
+	}))
+	return changed ? { ...list, pages } : list
+}
+
 export function reduceMailCacheEntry(
 	queryKey: QueryKey,
 	data: unknown,
 	effect: MailCacheEffect,
 	beforeThread?: MailThread,
+	afterDraft?: MailMessage,
 ): unknown {
 	if (data === undefined) return data
 	if (isMailKey(queryKey, 'folders')) {
@@ -314,17 +414,33 @@ export function reduceMailCacheEntry(
 	}
 	if (isMailKey(queryKey, 'thread')) {
 		const detail = data as MailThreadDetail
+		// A draft shown in its thread leaves it once it is sent or discarded; a
+		// sent one comes back as the message it became.
+		if (effect.type === 'draft.deleted') {
+			if (!detail.messages.some((message) => message.id === effect.draftId)) return data
+			return { ...detail, messages: detail.messages.filter((message) => message.id !== effect.draftId) }
+		}
 		const id = effectThreadId(effect)
 		if (!id || detail.thread.id !== id) return data
 		const nextThread = nextThreadForEffect(effect, detail.thread)
 		/* v8 ignore next -- a matching thread effect always has the cached detail as its source -- @preserve */
 		if (!nextThread) return data
+		if (effect.type === 'draft.sent') {
+			const sent = effect.message
+			const kept = detail.messages.filter(
+				(message) => message.id !== effect.draftId && message.id !== sent?.id,
+			)
+			return { ...detail, thread: nextThread, messages: sent ? [...kept, sent] : kept }
+		}
 		return { ...detail, thread: nextThread }
 	}
 	if (isMailKey(queryKey, 'threads')) {
 		const list = data as MailThreadListData
+		if (effect.type === 'draft.deleted') return listWithoutDraft(list, effect.draftId, afterDraft)
 		if (effect.type === 'draft.sent') {
-			const sentThread = nextThreadForEffect(effect)
+			const id = effectThreadId(effect)
+			const current = list.pages.flatMap((page) => page.threads).find((thread) => thread.id === id)
+			const sentThread = nextThreadForEffect(effect, current ?? beforeThread)
 			return sentThread ? updateThreadList(list, keyFilters(queryKey), sentThread.id, sentThread) : data
 		}
 		const id = effectThreadId(effect)
@@ -349,9 +465,11 @@ export function applyMailCacheEffect(
 ): QueryKey[] {
 	const threadId = effectThreadId(effect)
 	const beforeThread = threadId ? findCachedThread(client, threadId, root) : undefined
+	const afterDraft =
+		effect.type === 'draft.deleted' ? messageAfterDraft(client, effect.draftId, root) : undefined
 	const changed: QueryKey[] = []
 	for (const [queryKey, data] of client.getQueriesData({ queryKey: root })) {
-		const next = reduceMailCacheEntry(queryKey, data, effect, beforeThread)
+		const next = reduceMailCacheEntry(queryKey, data, effect, beforeThread, afterDraft)
 		if (next === undefined && data !== undefined) {
 			client.removeQueries({ queryKey, exact: true })
 		} else if (next !== data) {
@@ -436,10 +554,16 @@ export function createMailOptimisticManager(client: QueryClient, root: QueryKey 
 		touched.clear()
 		if (!refetchWhenSettled) return
 		refetchWhenSettled = false
-		void client.invalidateQueries({ queryKey: root, refetchType: 'active' }).catch(
-			/* v8 ignore next -- @preserve a failed background refetch leaves the restored cache in place and is retried by the next poll */
-			() => {},
-		)
+		void client
+			.invalidateQueries({
+				queryKey: root,
+				predicate: (query) => !isSessionMailLookup(query.queryKey),
+				refetchType: 'active',
+			})
+			.catch(
+				/* v8 ignore next -- @preserve a failed background refetch leaves the restored cache in place and is retried by the next poll */
+				() => {},
+			)
 	}
 
 	return {
@@ -448,12 +572,17 @@ export function createMailOptimisticManager(client: QueryClient, root: QueryKey 
 			options: { preserveThreadDetails?: boolean } = {},
 		): Promise<MailOptimisticOperation> {
 			// Opening a thread marks it read while its detail is still loading;
-			// cancelling that fetch would fail the reader's own route load.
-			await client.cancelQueries(
-				options.preserveThreadDetails
-					? { queryKey: root, predicate: (query) => query.queryKey[MAIL_KEY_KIND] !== 'thread' }
-					: { queryKey: root },
-			)
+			// cancelling that fetch would fail the reader's own route load. Header
+			// lookups are never written optimistically, and a cancelled one is not
+			// retried, so they always run on.
+			await client.cancelQueries({
+				queryKey: root,
+				predicate: (query) => {
+					const kind = query.queryKey[MAIL_KEY_KIND]
+					if (typeof kind === 'string' && MAIL_HEADER_LOOKUP_KINDS.has(kind)) return false
+					return !(options.preserveThreadDetails && kind === 'thread')
+				},
+			})
 			const entry: JournalEntry = { id: nextId++, effect, status: 'pending' }
 			entries.push(entry)
 			apply(effect)

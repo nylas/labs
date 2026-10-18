@@ -1,5 +1,20 @@
-import { Archive, Forward, Inbox, Mail, MailOpen, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
+import {
+	Archive,
+	Bell,
+	BellOff,
+	Forward,
+	Inbox,
+	Mail,
+	MailOpen,
+	Reply,
+	ReplyAll,
+	Send,
+	Star,
+	Trash2,
+	X,
+} from 'lucide-react'
 import type { ReactElement, ReactNode } from 'react'
+import { isThreadMuted, toggleThreadMuted, useUserPreferences } from '#app/preferences/user-preferences'
 import {
 	ContextMenu,
 	ContextMenuContent,
@@ -8,8 +23,11 @@ import {
 	ContextMenuShortcut,
 	ContextMenuTrigger,
 } from '#shared/components/ui/context-menu'
+import { pendingSendAt } from '../lib/thread-list-model.js'
+import type { ScheduledSendAction } from '../state/mail-mutations.js'
 import type { MailThread } from '../state/mail-queries.js'
 import type { ThreadResponseKind } from '../state/thread-response.js'
+import { useThreadListEnv } from './ThreadListGroups.js'
 
 export type ThreadRowUpdate = { unread?: boolean; folder?: string }
 
@@ -32,7 +50,9 @@ function Item({
  * and the row already do (open, answer, read state, star, archive, delete) and
  * acts on the row it was opened on, whichever conversation is open beside the
  * list. The reader's shortcuts (R, E, #, S, U) act on the open conversation,
- * so they are shown only on the row of that conversation.
+ * so they are shown only on the row of that conversation. Muting is this
+ * device's choice, as in the reader's More menu: it changes the row, never
+ * the folder.
  */
 export function ThreadRowMenu({
 	thread,
@@ -43,6 +63,7 @@ export function ThreadRowMenu({
 	onRespond,
 	onToggleStar,
 	onUpdate,
+	onScheduledSend,
 	children,
 }: {
 	thread: MailThread
@@ -55,9 +76,20 @@ export function ThreadRowMenu({
 	onRespond?: (kind: ThreadResponseKind) => void
 	onToggleStar: () => void
 	onUpdate: (input: ThreadRowUpdate) => void
+	/** Sends the thread's scheduled message now or cancels it; omitted where the list cannot. */
+	onScheduledSend?: (action: ScheduledSendAction) => void
 	/** The row element; it becomes the trigger. */
 	children: ReactElement
 }) {
+	const [preferences, savePreferences] = useUserPreferences()
+	// Mutes belong to the signed-in mailbox, which the list around the row names.
+	const { owner } = useThreadListEnv()
+	const muted = isThreadMuted(preferences, owner, thread.id)
+	// Your message that waits to be sent can go now, or be cancelled back into the composer.
+	const scheduled =
+		onScheduledSend && pendingSendAt(thread.latest_draft_or_message, Date.now()) !== undefined
+			? onScheduledSend
+			: null
 	const isArchived = folderId === 'archive' || thread.folders?.includes('archive') === true
 	const cannotRespond = busy || !onRespond
 	// The items are disabled without it, so they never call a missing handler.
@@ -95,6 +127,22 @@ export function ThreadRowMenu({
 				<Item shortcut={readerShortcuts && 'S'} disabled={busy} onSelect={() => onToggleStar()}>
 					<Star aria-hidden="true" />
 					{thread.starred ? 'Unstar' : 'Star'}
+				</Item>
+				{scheduled ? (
+					<>
+						<Item disabled={busy} onSelect={() => scheduled('send-now')}>
+							<Send aria-hidden="true" />
+							Send now
+						</Item>
+						<Item disabled={busy} onSelect={() => scheduled('cancel')}>
+							<X aria-hidden="true" />
+							Cancel scheduled send
+						</Item>
+					</>
+				) : null}
+				<Item onSelect={() => savePreferences(toggleThreadMuted(preferences, owner, thread.id))}>
+					{muted ? <Bell aria-hidden="true" /> : <BellOff aria-hidden="true" />}
+					{muted ? 'Unmute' : 'Mute'}
 				</Item>
 				<Item
 					shortcut={readerShortcuts && 'E'}

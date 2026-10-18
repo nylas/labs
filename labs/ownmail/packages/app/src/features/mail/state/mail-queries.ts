@@ -1,7 +1,15 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { type InfiniteData, infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import {
+	type InfiniteData,
+	infiniteQueryOptions,
+	type QueryClient,
+	queryOptions,
+} from '@tanstack/react-query'
 import { accountScope } from '#app/lib/account-scope'
 import { requireValidMailSearchQuery } from '../lib/mail-search.js'
+import type { MessageHeaderFacts, ThreadHeaderFacts } from '../server/header-facts.js'
+
+export type { MessageHeaderFacts, ThreadHeaderFacts }
 
 const MAX_PROVIDER_ID_LENGTH = 1000
 
@@ -25,6 +33,17 @@ export type MailThreadDetail = {
 	thread: MailThread
 	messages: MailMessage[]
 	mailboxEmail: string
+	/** Messages of the thread that could not be loaded; the rest are shown. */
+	failedMessageIds?: string[]
+}
+
+/** What the server answers for one thread, before it enters the browser cache. */
+export type ThreadDetailResult = {
+	thread: Thread
+	messages: Message[]
+	mailboxEmail: string
+	ownmailDraftMessageIds?: string[]
+	failedMessageIds?: string[]
 }
 
 export type MailThreadFilters = {
@@ -38,15 +57,17 @@ export type ThreadPageFetcher = (input: MailThreadFilters & { pageToken?: string
 	nextCursor?: string
 }>
 
+function validCacheId(value: unknown): value is string {
+	return (
+		typeof value === 'string' &&
+		value.length > 0 &&
+		value.length <= MAX_PROVIDER_ID_LENGTH &&
+		!/[\r\n]/.test(value)
+	)
+}
+
 function requireCacheId(value: string, label: string): string {
-	if (
-		typeof value !== 'string' ||
-		value.length === 0 ||
-		value.length > MAX_PROVIDER_ID_LENGTH ||
-		/[\r\n]/.test(value)
-	) {
-		throw new Error(`Invalid ${label}`)
-	}
+	if (!validCacheId(value)) throw new Error(`Invalid ${label}`)
 	return value
 }
 
@@ -128,17 +149,16 @@ export function toMailFolder(folder: Folder): MailFolder {
 	return safe
 }
 
-export function toMailThreadDetail(detail: {
-	thread: Thread
-	messages: Message[]
-	mailboxEmail: string
-	ownmailDraftMessageIds?: string[]
-}): MailThreadDetail {
+export function toMailThreadDetail(detail: ThreadDetailResult): MailThreadDetail {
 	const draftMessageIds = new Set(detail.ownmailDraftMessageIds ?? [])
+	const failedMessageIds = Array.isArray(detail.failedMessageIds)
+		? [...new Set(detail.failedMessageIds.filter(validCacheId))]
+		: []
 	return {
 		thread: toMailThread(detail.thread),
 		messages: detail.messages.map((message) => toMailMessage(message, draftMessageIds.has(message.id))),
 		mailboxEmail: detail.mailboxEmail,
+		...(failedMessageIds.length > 0 ? { failedMessageIds } : {}),
 	}
 }
 
@@ -161,26 +181,163 @@ export const mailKeys = {
 	threadDetails: () => [...mailKeys.all, 'thread'] as const,
 	threadDetail: (threadId: string) =>
 		[...mailKeys.all, 'thread', requireCacheId(threadId, 'thread')] as const,
-	/** Which messages of a thread carry a List-Unsubscribe header (Conversation view only). */
-	threadListUnsubscribe: (threadId: string) =>
-		[...mailKeys.all, 'thread-list-unsubscribe', requireCacheId(threadId, 'thread')] as const,
+	/**
+	 * Which messages of a thread carry a List-Unsubscribe header (Conversation
+	 * view only). Keyed by the thread's newest message too, so a new reply is
+	 * looked up.
+	 */
+	threadListUnsubscribe: (threadId: string, latestMessageId = '') =>
+		[
+			...mailKeys.all,
+			'thread-list-unsubscribe',
+			requireCacheId(threadId, 'thread'),
+			latestMessageId && requireCacheId(latestMessageId, 'message'),
+		] as const,
+	/**
+	 * Facts derived from a thread's headers: authentication, Reply-To, list,
+	 * sender time zone. Keyed by the thread's newest message too, so a new
+	 * reply is looked up; nothing else asks again.
+	 */
+	threadHeaderFacts: (threadId: string, latestMessageId = '') =>
+		[
+			...mailKeys.all,
+			'thread-header-facts',
+			requireCacheId(threadId, 'thread'),
+			latestMessageId && requireCacheId(latestMessageId, 'message'),
+		] as const,
+	/** One message's raw header block, fetched only for "Show raw headers". */
+	messageRawHeaders: (messageId: string) =>
+		[...mailKeys.all, 'message-raw-headers', requireCacheId(messageId, 'message')] as const,
 }
 
 /**
+ * Kinds of read-only lookups: no cache effect writes them, so nothing needs to
+ * cancel them (the thread list's per-row unread summary is one of them).
+ */
+export const MAIL_HEADER_LOOKUP_KINDS: ReadonlySet<string> = new Set([
+	'thread-list-unsubscribe',
+	'thread-header-facts',
+	'message-raw-headers',
+	'thread-unread-summary',
+])
+
+/**
  * The ids of a thread's messages that declare themselves bulk mail. Headers do
- * not change, so one answer per account and thread is kept for the session; a
- * failed lookup is not retried, and the Conversation view then classifies on
- * the message bodies alone.
+ * not change, so one answer per account, thread and newest message is kept for
+ * the session, and a new reply asks once more while the earlier answer stays
+ * on screen; a failed lookup is not retried, and the Conversation view then
+ * classifies on the message bodies alone.
  */
 export function threadListUnsubscribeQueryOptions(
 	threadId: string,
+	latestMessageId: string | undefined,
 	fetchMessageIds: (threadId: string) => Promise<string[]>,
+	queryClient?: QueryClient,
 ) {
 	const safeThreadId = requireCacheId(threadId, 'thread')
 	return queryOptions({
-		queryKey: mailKeys.threadListUnsubscribe(safeThreadId),
+		queryKey: mailKeys.threadListUnsubscribe(safeThreadId, latestMessageId),
 		queryFn: () => fetchMessageIds(safeThreadId),
 		staleTime: Number.POSITIVE_INFINITY,
+		retry: false,
+		// The reader is drawn afresh for a new reply, so the thread's newest cached
+		// answer, not the observer's last one, stands in while the reply is looked up.
+		placeholderData: (): string[] | undefined =>
+			queryClient
+				?.getQueryCache()
+				.findAll({ queryKey: mailKeys.threadListUnsubscribe(safeThreadId).slice(0, MAIL_KEY_ARGUMENT + 1) })
+				.filter((query) => query.state.data !== undefined)
+				.sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0]?.state.data as string[] | undefined,
+	})
+}
+
+/**
+ * The header facts of a thread's messages. Headers do not change, so one
+ * answer per account, thread and newest message is kept for the session, like
+ * the List-Unsubscribe lookup; mail refreshes never ask again (the lookups are
+ * left out of them), and a new reply asks once more while the earlier answer
+ * stays on screen for the messages it covers. A failed lookup rejects, is not
+ * retried, and leaves any earlier answer in place: the reader keeps links
+ * disabled for every message it has no facts for (design.md "Links disabled").
+ */
+export function threadHeaderFactsQueryOptions(
+	threadId: string,
+	latestMessageId: string | undefined,
+	fetchFacts: (threadId: string) => Promise<ThreadHeaderFacts>,
+) {
+	const safeThreadId = requireCacheId(threadId, 'thread')
+	const queryKey = mailKeys.threadHeaderFacts(safeThreadId, latestMessageId)
+	return queryOptions({
+		queryKey,
+		queryFn: () => fetchFacts(safeThreadId),
+		staleTime: Number.POSITIVE_INFINITY,
+		retry: false,
+		// Only the same thread's earlier answer stands in while a new reply is looked up.
+		placeholderData: (previous: ThreadHeaderFacts | undefined, previousQuery) =>
+			previousQuery?.queryKey[MAIL_KEY_ARGUMENT] === safeThreadId ? previous : undefined,
+	})
+}
+
+/**
+ * Whether a query is one of the lookups kept for the session: the header
+ * lookups and the side-thread search. Each is keyed by what it answers for,
+ * so a mail refresh never asks it again (and must not: each costs paged
+ * provider calls). The per-row unread summary is not one: read state changes
+ * in another tab or on another device, so a refresh asks it again.
+ */
+export function isSessionMailLookup(queryKey: readonly unknown[]): boolean {
+	if (queryKey[0] === SIDE_THREAD_KIND) return true
+	const kind = queryKey[MAIL_KEY_KIND]
+	return (
+		queryKey[0] === 'mail' &&
+		typeof kind === 'string' &&
+		kind !== 'thread-unread-summary' &&
+		MAIL_HEADER_LOOKUP_KINDS.has(kind)
+	)
+}
+
+/** The first key part of the side-thread lookup, which lives outside the mail root. */
+export const SIDE_THREAD_KIND = 'mail-side-thread'
+
+/**
+ * Where a thread's header lookup stands for the reader: `settled` once the
+ * lookup for the thread as it is now has answered, `failed` when it could not
+ * (facts kept from an earlier answer still count), else `pending`, which
+ * includes the earlier answer shown while a newer message is looked up.
+ */
+export type HeaderFactsState = 'pending' | 'failed' | 'settled'
+
+export function headerFactsState(query: {
+	status: 'pending' | 'error' | 'success'
+	isPlaceholderData: boolean
+}): HeaderFactsState {
+	if (query.status === 'error') return 'failed'
+	return query.status === 'success' && !query.isPlaceholderData ? 'settled' : 'pending'
+}
+
+/** The facts for one message, or none when the lookup has not answered for it. */
+export function messageHeaderFactsFor(
+	facts: ThreadHeaderFacts | undefined,
+	messageId: string,
+): MessageHeaderFacts | undefined {
+	return facts && Object.hasOwn(facts.byMessage, messageId) ? facts.byMessage[messageId] : undefined
+}
+
+/**
+ * One message's raw header text. Fetched only when the reader asks to see it
+ * and kept briefly: the text is sender-controlled and only shown, never parsed
+ * by the client.
+ */
+export function messageRawHeadersQueryOptions(
+	messageId: string,
+	fetchHeaders: (messageId: string) => Promise<{ text: string }>,
+) {
+	const safeMessageId = requireCacheId(messageId, 'message')
+	return queryOptions({
+		queryKey: mailKeys.messageRawHeaders(safeMessageId),
+		queryFn: async () => (await fetchHeaders(safeMessageId)).text,
+		staleTime: Number.POSITIVE_INFINITY,
+		gcTime: 60_000,
 		retry: false,
 	})
 }
@@ -228,16 +385,15 @@ export function threadListQueryOptions(filters: MailThreadFilters, fetchPage: Th
 
 export function threadDetailQueryOptions(
 	threadId: string,
-	fetchDetail: (threadId: string) => Promise<{
-		thread: Thread
-		messages: Message[]
-		mailboxEmail: string
-		ownmailDraftMessageIds?: string[]
-	}>,
+	fetchDetail: (threadId: string) => Promise<ThreadDetailResult>,
 ) {
 	const safeThreadId = requireCacheId(threadId, 'thread')
 	return queryOptions({
 		queryKey: mailKeys.threadDetail(safeThreadId),
 		queryFn: async () => toMailThreadDetail(await fetchDetail(safeThreadId)),
+		// Offline, a conversation that is not saved on this device fails at once
+		// (the reader says so, with Try again) instead of waiting, paused, for a
+		// connection behind a loading skeleton.
+		networkMode: 'always',
 	})
 }

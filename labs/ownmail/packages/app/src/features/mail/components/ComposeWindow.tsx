@@ -1,19 +1,21 @@
 import { useQueryClient } from '@tanstack/react-query'
 import { Maximize2, Minus, Paperclip, Save, Send, Trash2, X } from 'lucide-react'
-import { type Ref, useCallback, useEffect, useImperativeHandle, useRef, useState } from 'react'
+import { type Ref, useCallback, useEffect, useImperativeHandle, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { useUserPreferences } from '#app/preferences/user-preferences'
 import { applyContactEffect } from '#features/contacts/state/contacts-state'
+import { firstNameFromAddress, knownNameFor, recipientAddresses } from '#features/mail/lib/edge-states'
 import { markdownToDraftBody, seedToMarkdown } from '#features/mail/lib/html-to-markdown'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
 import { validateRecipientEmails } from '#features/mail/lib/recipients'
+import { firstName, REPLY_ALL_GUARD } from '#features/mail/lib/thread-reading-model'
 import type { OutboundAttachment } from '#features/mail/server/outbound-attachments'
 import {
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
 	useSendDraftMutation,
 } from '#features/mail/state/mail-mutations'
-import type { MailDraft } from '#features/mail/state/mail-queries'
+import { type MailDraft, type MailThreadDetail, mailKeys } from '#features/mail/state/mail-queries'
 import { saveComposeRecipients } from '#server/fns'
 import { RecipientInput, type RecipientInputHandle } from '#shared/components/RecipientInput'
 import { Button } from '#shared/components/ui/button'
@@ -24,7 +26,25 @@ import { runTrackedWrite } from '#shared/lib/tracked-write'
 import { cn } from '#shared/lib/utils'
 import { ErrorBanner } from './ErrorBanner.js'
 import { MarkdownEditor } from './MarkdownEditor.js'
+import { ReplyAllGuard } from './ReplyAllGuard.js'
 import { formatSize } from './ThreadConversation.js'
+
+/**
+ * "Reply to {First} only" names the person as the thread knows them (Alan,
+ * not the "Aturing" of aturing@…); the address alone is the fallback.
+ */
+function replyOnlyFirstName(
+	address: string,
+	cached: Array<[unknown, MailThreadDetail | undefined]>,
+	replyToMessageId: string,
+): string {
+	const name = knownNameFor(
+		address,
+		cached.map(([, detail]) => detail),
+		replyToMessageId,
+	)
+	return name ? firstName({ name, email: address }) : firstNameFromAddress(address)
+}
 
 /**
  * What a composer starts from. A draft is loaded before the window opens; the
@@ -111,6 +131,24 @@ function draftSaveErrorMessage(error: unknown): string {
 
 type ComposeAttachment = OutboundAttachment & { clientId: string }
 
+/** The Cc and Bcc of a draft being edited, as comma-separated addresses; none for a new message. */
+function copiedRecipients(draft: Pick<MailDraft, 'cc' | 'bcc'> | null): { cc?: string; bcc?: string } {
+	const emails = (people: MailDraft['cc']) => (people ?? []).map((person) => person.email).join(', ')
+	const cc = emails(draft?.cc)
+	const bcc = emails(draft?.bcc)
+	return { ...(cc ? { cc } : {}), ...(bcc ? { bcc } : {}) }
+}
+
+/** A recipient line the composer keeps but does not edit (a draft's Cc or Bcc). */
+function KeptRecipientsRow({ label, emails }: { label: string; emails: string }) {
+	return (
+		<div data-slot="compose-kept-recipients" className="flex min-h-10 items-center gap-2 px-3">
+			<span className="w-14 shrink-0 text-muted-foreground">{label}</span>
+			<span className="min-w-0 flex-1 truncate">{emails}</span>
+		</div>
+	)
+}
+
 type DraftPersistenceInput = {
 	to: string
 	subject: string
@@ -143,6 +181,15 @@ export function ComposeWindow({
 	const [subject, setSubject] = useState(draft?.subject ?? reply?.subject ?? '')
 	const draftBody = draft?.body ?? reply?.body ?? ''
 	const replyToMessageId = reply?.replyToMessageId ?? draft?.reply_to_message_id
+	// A draft's Cc and Bcc (a cancelled scheduled message keeps them) go with
+	// every save and the send, since a draft update replaces the whole draft.
+	const keptRecipients = useMemo(() => copiedRecipients(draft), [draft])
+	// So do the files it already holds (a cancelled scheduled message's, or a
+	// bounced one copied to resend): the composer names them, the server keeps them.
+	const keptAttachments = useMemo(
+		() => (draft?.attachments ?? []).map((attachment) => attachment.filename ?? 'attachment'),
+		[draft],
+	)
 	const [body, setBody] = useState(draftBody)
 	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
@@ -183,6 +230,8 @@ export function ComposeWindow({
 		() => recipientInputRef.current?.getCurrentValue() ?? recipientDraft,
 		[recipientDraft],
 	)
+	// Reply all to a crowd asks once (design.md "Edge states"); the original sender comes first.
+	const replyRecipients = recipientAddresses(to)
 
 	// Draft bodies can contain legacy HTML or OwnMail's markdown envelope. Decode
 	// only after hydration because the conversion uses browser DOM APIs.
@@ -216,10 +265,12 @@ export function ComposeWindow({
 			const savedDraft = await saveDraft({
 				...(draftIdRef.current ? { draftId: draftIdRef.current } : {}),
 				to,
+				...keptRecipients,
 				subject,
 				// Enveloped so reloading can tell markdown from legacy HTML drafts.
 				body: body ? markdownToDraftBody(body) : '',
 				...(attachments.length ? { attachments } : {}),
+				...(keptAttachments.length ? { keepAttachments: keptAttachments } : {}),
 				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			draftIdRef.current = savedDraft.draftId
@@ -232,7 +283,7 @@ export function ComposeWindow({
 			}
 			return savedDraft.draftId
 		},
-		[saveDraft],
+		[saveDraft, keptRecipients, keptAttachments],
 	)
 
 	const queueDraftPersistence = useCallback(
@@ -451,6 +502,7 @@ export function ComposeWindow({
 				await sendDraftMutation.mutateAsync({
 					draftId: id,
 					to: currentTo,
+					...keptRecipients,
 					subject,
 					// The editor holds markdown; outgoing mail carries inline-styled HTML.
 					body: markdownToEmailHtml(body),
@@ -487,6 +539,7 @@ export function ComposeWindow({
 			preferences.autoSaveContacts,
 			queryClient,
 			queueDraftPersistence,
+			keptRecipients,
 			replyToMessageId,
 			requestConfirmation,
 			sendDraftMutation,
@@ -794,6 +847,8 @@ export function ComposeWindow({
 									describedBy={recipientError ? 'compose-recipient-error' : undefined}
 								/>
 							</div>
+							{keptRecipients.cc ? <KeptRecipientsRow label="Cc" emails={keptRecipients.cc} /> : null}
+							{keptRecipients.bcc ? <KeptRecipientsRow label="Bcc" emails={keptRecipients.bcc} /> : null}
 							{recipientError ? (
 								<p id="compose-recipient-error" role="alert" className="mt-1 pl-16 text-xs text-destructive">
 									{recipientError}
@@ -813,6 +868,24 @@ export function ComposeWindow({
 								className="compose-field h-12 min-w-0 flex-1 bg-transparent outline-none placeholder:text-muted-foreground disabled:cursor-wait disabled:opacity-60"
 							/>
 						</label>
+						{replyToMessageId && replyRecipients.length > REPLY_ALL_GUARD ? (
+							<div className="border-b border-border px-3 py-2">
+								<ReplyAllGuard
+									count={replyRecipients.length}
+									replyOnlyFirstName={replyOnlyFirstName(
+										replyRecipients[0] as string,
+										queryClient.getQueriesData<MailThreadDetail>({ queryKey: mailKeys.threadDetails() }),
+										replyToMessageId,
+									)}
+									onReplyOnly={() => {
+										const only = replyRecipients[0] as string
+										setTo(only)
+										setRecipientDraft(only)
+										setRecipientError(null)
+									}}
+								/>
+							</div>
+						) : null}
 					</div>
 
 					<MarkdownEditor
@@ -820,7 +893,8 @@ export function ComposeWindow({
 						value={body}
 						onChange={setBody}
 						readOnly={busy || closing}
-						className="min-h-0 flex-1"
+						// In the thread the reply keeps room to write however long its header grows.
+						className={cn('min-h-0 flex-1', inlineReply && 'min-h-24')}
 					/>
 
 					{attachments.length ? (

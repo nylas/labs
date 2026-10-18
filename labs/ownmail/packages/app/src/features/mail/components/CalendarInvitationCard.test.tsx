@@ -3,7 +3,9 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { act, cleanup, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
+import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { calendarKeys } from '#features/calendar/state/calendar-keys'
 import type { MailMessage } from '../state/mail-queries'
 
 const { addCalendarInvitation, getCalendarInvitation, respondCalendarInvitation } = vi.hoisted(() => ({
@@ -15,6 +17,11 @@ vi.mock('#features/calendar/server/calendar-invitation-fns', () => ({
 	addCalendarInvitation: (...args: unknown[]) => addCalendarInvitation(...args),
 	getCalendarInvitation: (...args: unknown[]) => getCalendarInvitation(...args),
 	respondCalendarInvitation: (...args: unknown[]) => respondCalendarInvitation(...args),
+}))
+
+const { getInvitationFileTime } = vi.hoisted(() => ({ getInvitationFileTime: vi.fn() }))
+vi.mock('../server/invitation-file-time.js', () => ({
+	getInvitationFileTime: (...args: unknown[]) => getInvitationFileTime(...args),
 }))
 
 const { CalendarInvitationCard } = await import('./CalendarInvitationCard.js')
@@ -42,6 +49,25 @@ function renderCard(value: MailMessage = message) {
 }
 
 describe('CalendarInvitationCard', () => {
+	it('renders its loading state on the server even when the invitation is already known, so hydration matches', () => {
+		const queryClient = new QueryClient()
+		queryClient.setQueryData(calendarKeys.invitation('message-1', 'attachment-1'), {
+			state: 'ready',
+			title: 'Planning review',
+			organizer: 'Grace Hopper',
+			when: { kind: 'timed', start: 1_817_823_600, end: 1_817_827_200 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
+		const html = renderToString(
+			<QueryClientProvider client={queryClient}>
+				<CalendarInvitationCard message={message} />
+			</QueryClientProvider>,
+		)
+		expect(html).toContain('Loading calendar invitation')
+		expect(html).not.toContain('Planning review')
+	})
+
 	beforeEach(() => {
 		addCalendarInvitation.mockReset().mockResolvedValue({
 			state: 'ready',
@@ -76,6 +102,11 @@ describe('CalendarInvitationCard', () => {
 		expect(screen.getByText('From Grace Hopper')).toBeInTheDocument()
 		expect(screen.getByText('Aurora room')).toBeInTheDocument()
 		expect(screen.getByRole('alert')).toHaveTextContent('overlaps with 2 events')
+		expect(screen.getByRole('alert')).toHaveClass(
+			'border-notice-warning-line',
+			'bg-notice-warning',
+			'text-notice-warning-foreground',
+		)
 		// The label and icon tile identify the app-inserted card; no side has an accent border.
 		expect(screen.getByText('Calendar invitation')).toBeInTheDocument()
 		const card = document.querySelector('[data-slot="calendar-invitation"]')
@@ -136,7 +167,8 @@ describe('CalendarInvitationCard', () => {
 
 		expect(getCalendarInvitation).toHaveBeenCalledTimes(2)
 		expect(screen.getByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
-		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+		// A clear calendar adds nothing to the compact card.
+		expect(screen.queryByText(/conflict/i)).toBeNull()
 	})
 
 	it('shows cancellation-specific retry copy while a calendar mutation finishes', async () => {
@@ -258,7 +290,7 @@ describe('CalendarInvitationCard', () => {
 			data: { messageId: 'message-1', attachmentId: 'attachment-1' },
 		})
 		expect(await screen.findByRole('heading', { name: 'Planning review' })).toBeInTheDocument()
-		expect(screen.getByText('No conflicts on your calendar')).toBeInTheDocument()
+		expect(screen.queryByText(/conflict/i)).toBeNull()
 		expect(screen.getByText('Added to your calendar')).toBeInTheDocument()
 		expect(screen.queryByRole('button', { name: 'Accept' })).toBeNull()
 		expect(respondCalendarInvitation).not.toHaveBeenCalled()
@@ -356,13 +388,13 @@ describe('CalendarInvitationCard', () => {
 	it.each([
 		[
 			{ kind: 'all-day', startDate: '2027-12-25', endDate: '2027-12-26' },
-			'All day · Saturday, December 25, 2027',
+			'All day · Sat, Dec 25',
 			'maybe',
 			'You replied maybe',
 		],
 		[
 			{ kind: 'all-day', startDate: '2027-12-25', endDate: '2027-12-28' },
-			'Saturday, December 25, 2027–Monday, December 27, 2027',
+			'All day · Sat, Dec 25–Mon, Dec 27',
 			'no',
 			'You declined',
 		],
@@ -390,5 +422,121 @@ describe('CalendarInvitationCard', () => {
 
 		await waitFor(() => expect(getCalendarInvitation).not.toHaveBeenCalled())
 		expect(container).toBeEmptyDOMElement()
+	})
+})
+
+describe('CalendarInvitationCard (an invite that changed)', () => {
+	const START = 1_817_823_600
+	const time = (seconds: number) =>
+		new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(seconds * 1_000)
+	const version = (id: string, date?: number): MailMessage => ({
+		id,
+		...(date ? { date } : {}),
+		attachments: [{ id: `att-${id}`, filename: 'invite.ics', content_type: 'text/calendar; method=REQUEST' }],
+	})
+
+	function renderHistory(props: Record<string, unknown>) {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		return render(
+			<QueryClientProvider client={queryClient}>
+				<CalendarInvitationCard message={message} {...props} />
+			</QueryClientProvider>,
+		)
+	}
+
+	beforeEach(() => {
+		getCalendarInvitation.mockReset().mockResolvedValue({
+			state: 'ready',
+			title: 'Design review',
+			organizer: 'Katherine Johnson',
+			when: { kind: 'timed', start: START, end: START + 2_700 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
+		getInvitationFileTime.mockReset().mockResolvedValue({ start: START - 3_600, end: START - 900 })
+		respondCalendarInvitation.mockReset().mockResolvedValue({ status: 'maybe' })
+	})
+
+	afterEach(cleanup)
+
+	it('says how often it changed, strikes the earlier time and lists the earlier versions', async () => {
+		renderHistory({ updateCount: 3, earlierVersions: [version('v1'), version('v2', START - 86_400)] })
+		expect(await screen.findByText('Updated 3 times')).toBeInTheDocument()
+		const previous = await screen.findByText(time(START - 3_600))
+		expect(previous.closest('s')).toHaveAttribute('data-slot', 'invitation-previous-time')
+		expect(getInvitationFileTime).toHaveBeenCalledWith({ data: { messageId: 'v2', attachmentId: 'att-v2' } })
+
+		const toggle = screen.getByRole('button', { name: 'Earlier versions' })
+		expect(toggle).toHaveAttribute('aria-expanded', 'false')
+		await userEvent.click(toggle)
+		const list = screen.getByRole('list')
+		expect(list.children).toHaveLength(2)
+		expect(list.children[0]).toHaveTextContent(/^.+ · Sent .+$/)
+		expect(list.children[1]).toHaveTextContent('Sent earlier')
+		expect(list.children[0]?.querySelector('s')).not.toBeNull()
+		await userEvent.click(toggle)
+		expect(screen.queryByRole('list')).toBeNull()
+	})
+
+	it('uses a known earlier time, with its day when the day changed', async () => {
+		renderHistory({ updateCount: 1, previousStartTime: START - 86_400, earlierVersions: [] })
+		expect(await screen.findByText('Updated 1 time')).toBeInTheDocument()
+		expect(
+			screen.getByText((_, element) => element?.getAttribute('data-slot') === 'invitation-previous-time'),
+		).toHaveTextContent(/was .+ · .+/)
+		expect(getInvitationFileTime).not.toHaveBeenCalled()
+		expect(screen.queryByRole('button', { name: 'Earlier versions' })).toBeNull()
+	})
+
+	it('strikes nothing when the time did not change or the file has no time', async () => {
+		getInvitationFileTime.mockResolvedValue(null)
+		const view = renderHistory({ updateCount: 2, earlierVersions: [version('v1', START - 7_200)] })
+		expect(await screen.findByText('Updated 2 times')).toBeInTheDocument()
+		await userEvent.click(screen.getByRole('button', { name: 'Earlier versions' }))
+		expect(await screen.findByText(/^Sent /)).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="invitation-previous-time"]')).toBeNull()
+		view.unmount()
+
+		renderHistory({ previousStartTime: START, earlierVersions: [] })
+		expect(await screen.findByRole('heading', { name: 'Design review' })).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="invitation-previous-time"]')).toBeNull()
+		expect(screen.queryByText(/^Updated/)).toBeNull()
+	})
+
+	it('offers Accept as the first choice, then borders the answer given', async () => {
+		renderHistory({})
+		const accept = await screen.findByRole('button', { name: 'Accept' })
+		expect(accept).toHaveClass('border-cta-line')
+		expect(screen.getByRole('button', { name: 'Maybe' })).not.toHaveClass('border-cta-line')
+		await userEvent.click(screen.getByRole('button', { name: 'Maybe' }))
+		await waitFor(() => expect(screen.getByRole('button', { name: 'Maybe' })).toHaveClass('border-cta-line'))
+		expect(screen.getByRole('button', { name: 'Accept' })).not.toHaveClass('border-cta-line')
+	})
+
+	it('keeps both periods when a meeting runs from morning into the afternoon', async () => {
+		const start = new Date(2027, 7, 10, 11, 0).getTime() / 1000
+		getCalendarInvitation.mockResolvedValue({
+			state: 'ready',
+			title: 'Lunch review',
+			organizer: 'Alan Turing',
+			when: { kind: 'timed', start, end: start + 5_400 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
+		renderHistory({})
+		expect(await screen.findByText(/11:00\sAM–12:30\sPM/)).toBeInTheDocument()
+	})
+
+	it('formats a timed event that crosses midnight with both days', async () => {
+		getCalendarInvitation.mockResolvedValue({
+			state: 'ready',
+			title: 'Overnight deploy',
+			organizer: 'Alan Turing',
+			when: { kind: 'timed', start: START, end: START + 86_400 },
+			status: 'noreply',
+			conflicts: { state: 'clear' },
+		})
+		renderHistory({})
+		expect(await screen.findByText(/ – /)).toBeInTheDocument()
 	})
 })

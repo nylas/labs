@@ -7,7 +7,7 @@ import { renderToString } from 'react-dom/server'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { markdownToDraftBody } from '#features/mail/lib/html-to-markdown'
 import { markdownToEmailHtml } from '#features/mail/lib/markdown-model'
-import type { MailDraft } from '#features/mail/state/mail-queries'
+import { type MailDraft, mailKeys } from '#features/mail/state/mail-queries'
 
 // All server calls are mocked so a render never touches the network; tests assert
 // the right fn is called with the right payload.
@@ -80,9 +80,10 @@ vi.mock('#shared/components/RecipientInput', async () => {
 // here it stands in as a plain textarea so composer flows — prefill, send, autosave,
 // minimize — are asserted on the markdown source the editor reports upward.
 vi.mock('./MarkdownEditor.js', () => ({
-	MarkdownEditor: ({ id, value, onChange, placeholder, readOnly }: any) => (
+	MarkdownEditor: ({ id, value, onChange, placeholder, readOnly, className }: any) => (
 		<textarea
 			id={id}
+			className={className}
 			placeholder={placeholder ?? 'Write your message...'}
 			value={value}
 			readOnly={readOnly}
@@ -123,15 +124,17 @@ function fieldsSeed(fields: { to?: string; subject?: string; body?: string; repl
 function renderWindow({
 	seed = { kind: 'new' },
 	inlineSlot,
+	client = new QueryClient({ defaultOptions: { queries: { retry: false } } }),
 }: {
 	seed?: ComposeSeed
 	inlineSlot?: HTMLElement | null
+	client?: QueryClient
 } = {}) {
 	const onClosed = vi.fn()
 	const onSent = vi.fn()
 	const handle = createRef<ComposeWindowHandle>()
 	const view = render(
-		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+		<QueryClientProvider client={client}>
 			<ComposeWindow
 				seed={seed}
 				inlineSlot={inlineSlot}
@@ -294,6 +297,8 @@ describe('ComposeWindow inline reply', () => {
 		expect(reply).toHaveAttribute('data-presentation', 'inline')
 		expect(reply).toHaveClass('compose-panel-inline')
 		expect(reply).not.toHaveClass('glass-panel', 'fixed')
+		// However tall the recipients and the reply-all guard make it, the message keeps room.
+		expect(document.getElementById('compose-body')).toHaveClass('min-h-24')
 		expect(slot).toContainElement(reply)
 		// Nothing floats, so there is nothing to minimise out of the way.
 		expect(screen.getByRole('button', { name: 'Minimize composer' })).toHaveClass('hidden')
@@ -1069,6 +1074,65 @@ describe('ComposeWindow send', () => {
 		expect(saveDraft.mock.calls[0][0].data.attachments).toHaveLength(1)
 	})
 
+	it('keeps a draft’s Cc and Bcc through the save and the send, and shows them', async () => {
+		// A cancelled scheduled message opens as a draft with every recipient it had.
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({
+				id: 'd0',
+				to: [{ email: 'a@b.com' }],
+				cc: [{ email: 'c@d.com' }, { email: 'e@f.com' }],
+				bcc: [{ email: 'g@h.com' }],
+				subject: 'Draft',
+				body: 'body',
+			}),
+		})
+		const kept = document.querySelectorAll('[data-slot="compose-kept-recipients"]')
+		expect([...kept].map((row) => row.textContent)).toEqual(['Ccc@d.com, e@f.com', 'Bccg@h.com'])
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({ cc: 'c@d.com, e@f.com', bcc: 'g@h.com' })
+		expect(sendDraft.mock.calls[0][0].data).toMatchObject({ cc: 'c@d.com, e@f.com', bcc: 'g@h.com' })
+	})
+
+	it('names a draft’s own files on every save, so a cancelled or resent message keeps them', async () => {
+		// The draft a cancelled scheduled message (or Edit and resend) opens holds its files.
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({
+				id: 'd0',
+				to: [{ email: 'a@b.com' }],
+				subject: 'Draft',
+				body: 'body',
+				attachments: [
+					{ id: 'a1', filename: 'plan.pdf', content_type: 'application/pdf', size: 3 },
+					{ id: 'a2', content_type: 'image/png', size: 3 },
+				],
+			}),
+		})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({
+			draftId: 'd0',
+			keepAttachments: ['plan.pdf', 'attachment'],
+		})
+		// The send restores whatever the draft holds after that save.
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('keepAttachments')
+	})
+
+	it('adds no Cc or Bcc to a draft that has none', async () => {
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({ id: 'd0', to: [{ email: 'a@b.com' }], cc: [], subject: 'Draft', body: 'b' }),
+		})
+		expect(document.querySelector('[data-slot="compose-kept-recipients"]')).toBeNull()
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('cc')
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('bcc')
+		expect(saveDraft.mock.calls[0][0].data).not.toHaveProperty('keepAttachments')
+	})
+
 	it('updates and sends the existing draft instead of creating a second message', async () => {
 		saveDraft.mockResolvedValue({ draftId: 'd0' })
 		renderWindow({
@@ -1815,5 +1879,51 @@ describe('ComposeWindow reliable autosave', () => {
 		})
 		expect(onClosed).toHaveBeenCalledOnce()
 		expect(saveDraft.mock.lastCall?.[0].data.to).toBe('typed@example.com')
+	})
+})
+
+describe('ComposeWindow reply-all guard', () => {
+	const crowd = (count: number) =>
+		[
+			'alan.turing@bletchley.dev',
+			...Array.from({ length: count - 1 }, (_, index) => `person${index}@vercel.com`),
+		].join(', ')
+
+	it('asks once before a reply reaches more than 25 people and offers the smaller reply first', () => {
+		renderWindow({
+			seed: fieldsSeed({ to: crowd(240), subject: 'Re: Staging freeze', replyToMessageId: 'm1' }),
+		})
+		expect(screen.getByRole('note')).toHaveTextContent('Reply all will reach 240 people.')
+		fireEvent.click(screen.getByRole('button', { name: 'Reply to Alan only' }))
+		expect(screen.getByLabelText('To')).toHaveValue('alan.turing@bletchley.dev')
+		expect(screen.queryByRole('note')).toBeNull()
+	})
+
+	it('names the person as the thread knows them, not by their address', () => {
+		const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+		const to = ['aturing@bletchley.dev', ...Array.from({ length: 30 }, (_, index) => `p${index}@x.com`)].join(
+			', ',
+		)
+		client.setQueryData(mailKeys.threadDetail('t1'), {
+			thread: { id: 't1' },
+			messages: [
+				{ id: 'm0', from: [{ name: '', email: 'aturing@bletchley.dev' }] },
+				{ id: 'm1', from: [{ name: 'Alan Turing', email: 'ATuring@bletchley.dev' }] },
+			],
+			mailboxEmail: 'ada@ownmail.com',
+		})
+		client.setQueryData(mailKeys.threadDetail('t2'), undefined)
+		renderWindow({ client, seed: fieldsSeed({ to, subject: 'Re: Staging', replyToMessageId: 'm1' }) })
+		expect(screen.getByRole('button', { name: 'Reply to Alan only' })).toBeInTheDocument()
+	})
+
+	it('says nothing for a small reply or a new message to a crowd', () => {
+		const view = renderWindow({
+			seed: fieldsSeed({ to: crowd(25), subject: 'Re: Hi', replyToMessageId: 'm1' }),
+		})
+		expect(screen.queryByRole('note')).toBeNull()
+		view.unmount()
+		renderWindow({ seed: fieldsSeed({ to: crowd(40), subject: 'Hello all' }) })
+		expect(screen.queryByRole('note')).toBeNull()
 	})
 })

@@ -60,8 +60,12 @@ describe('ComposeProvider before the composer code has loaded', () => {
 		await act(async () => {
 			await compose.openCompose({ kind: 'new' })
 		})
-		expect(await screen.findByRole('dialog', { name: 'Compose message' })).toBeInTheDocument()
-	})
+		// The code arrives when it arrives: a cold transform of the composer's
+		// modules can take seconds on a busy machine, longer than the default wait.
+		expect(
+			await screen.findByRole('dialog', { name: 'Compose message' }, { timeout: 15_000 }),
+		).toBeInTheDocument()
+	}, 20_000)
 })
 
 describe('ComposeProvider idle warm-up', () => {

@@ -1,4 +1,5 @@
 import { Redis } from '@upstash/redis'
+import { devMocks } from './dev-mailbox.js'
 
 const REDIS_SET_MAXIMUM_SCRIPT = `
 local current = tonumber(redis.call('GET', KEYS[1]))
@@ -110,7 +111,8 @@ export async function platform(): Promise<Platform> {
 	if (cached) return cached
 	const rawProcessEnv = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
 	const processEnv = rawProcessEnv as unknown as AppEnv | undefined
-	if (processEnv?.OWNMAIL_DEV_MOCKS === '1' && rawProcessEnv?.NODE_ENV !== 'production') {
+	// Mock mode needs the mock mailbox, which only the repository's local builds carry.
+	if (devMocks && processEnv?.OWNMAIL_DEV_MOCKS === '1' && rawProcessEnv?.NODE_ENV !== 'production') {
 		if (!processEnv.SESSION_SECRET) {
 			throw new Error('Platform env unavailable - SESSION_SECRET not configured')
 		}
@@ -224,5 +226,10 @@ function nodeKv(env: AppEnv): KvLike | null {
 export async function usingDevMocks(): Promise<boolean> {
 	const { env, runtime } = await platform()
 	const nodeEnv = (globalThis as { process?: { env: Record<string, string | undefined> } }).process?.env
-	return runtime === 'node' && env.OWNMAIL_DEV_MOCKS === '1' && nodeEnv?.NODE_ENV !== 'production'
+	return (
+		devMocks !== null &&
+		runtime === 'node' &&
+		env.OWNMAIL_DEV_MOCKS === '1' &&
+		nodeEnv?.NODE_ENV !== 'production'
+	)
 }

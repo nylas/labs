@@ -47,6 +47,11 @@ const fns = vi.hoisted(() => ({
 		thread: { id: 'thB', subject: '', starred: true, folders: ['finance'], unread: false },
 	})),
 	updateThreadState: vi.fn(),
+	getThreadHeaderFacts: vi.fn(async () => ({ byMessage: {} })),
+	deleteDraft: vi.fn(),
+	sendScheduledNow: vi.fn(),
+	cancelScheduledSend: vi.fn(),
+	markMessagesRead: vi.fn(async () => ({ threadId: 'th1', messageIds: [] })),
 }))
 vi.mock('#server/fns', () => fns)
 
@@ -136,6 +141,20 @@ describe('/mail/search loader', () => {
 			folderId: 'starred',
 			selected: { thread: { id: 't1' } },
 		})
+	})
+
+	it('keeps the results when the chosen result cannot load; the reader says so', async () => {
+		fns.getFolders.mockResolvedValue([])
+		fns.getThreads.mockResolvedValue({ threads: [{ id: 't1' }] })
+		fns.getThreadMessages.mockRejectedValue(new Error('provider down'))
+
+		const result = await Route.options.loader({
+			context: { queryClient: new QueryClient() },
+			deps: { q: 'x', threadId: 't1' },
+			preload: true,
+		})
+
+		expect(result).toMatchObject({ threads: [{ id: 't1' }], selected: null })
 	})
 
 	it('returns the cached search reader to unread when the read fails while the loader is still waiting', async () => {
@@ -391,8 +410,8 @@ describe('/mail/search results list', () => {
 		expect(screen.getByText('Hello there')).toBeTruthy()
 		// Empty subject falls back to a placeholder.
 		expect(screen.getByText('(no subject)')).toBeTruthy()
-		// Multi-message thread shows its count; single-message thread does not.
-		expect(screen.getByText('(2)')).toBeTruthy()
+		// Rows count what is new ("3 new"), never every message in the thread.
+		expect(screen.queryByText('(2)')).toBeNull()
 		// The active thread and the unread thread are flagged for styling/state.
 		expect(container.querySelector('[data-active="true"]')?.querySelector('a')).toHaveAttribute(
 			'data-to',
@@ -407,7 +426,7 @@ describe('/mail/search results list', () => {
 		const listPane = screen.getByRole('heading', { level: 1 }).closest('section')
 		expect(listPane).toHaveClass(
 			'flex',
-			'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+			'xl:w-[min(var(--mail-list-width,22.5rem),calc(100%_-_360px))]',
 			'xl:flex-none',
 		)
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
@@ -780,6 +799,8 @@ describe('/mail/search thread detail', () => {
 		messages: any[]
 		mailboxEmail?: string
 		markedRead?: boolean
+		failedMessageIds?: string[]
+		ownmailDraftMessageIds?: string[]
 	}) {
 		// A single row keeps list markup rendering alongside the detail pane.
 		const threads = [
@@ -799,6 +820,10 @@ describe('/mail/search thread detail', () => {
 			thread: overrides.thread,
 			messages: overrides.messages,
 			mailboxEmail: overrides.mailboxEmail ?? 'me@x.com',
+			...(overrides.failedMessageIds ? { failedMessageIds: overrides.failedMessageIds } : {}),
+			...(overrides.ownmailDraftMessageIds
+				? { ownmailDraftMessageIds: overrides.ownmailDraftMessageIds }
+				: {}),
 		}
 		Route.useSearch = vi.fn(() => ({ q: 'hello', threadId: overrides.thread.id }))
 		Route.useLoaderData = vi.fn(() => ({ folders: [], folderId: 'work', threads, selected }))
@@ -825,6 +850,147 @@ describe('/mail/search thread detail', () => {
 		}
 	})
 
+	it('says when part of the result did not load, and loads it again on Try again', async () => {
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] },
+			messages,
+			failedMessageIds: ['m9', 'm10'],
+		})
+		renderRoute()
+		const notice = await screen.findByText('Couldn’t load 2 messages. Showing 3 saved on this device.')
+		const calls = fns.getThreadMessages.mock.calls.length
+		await userEvent.click(
+			within(notice.closest('[role="note"]') as HTMLElement).getByRole('button', { name: 'Try again' }),
+		)
+		await waitFor(() => expect(fns.getThreadMessages.mock.calls.length).toBeGreaterThan(calls))
+		expect(fns.getThreadMessages).toHaveBeenLastCalledWith({ data: { threadId: 'th1' } })
+	})
+
+	it('marks only the shown unread messages of a result that partly loaded', async () => {
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'], unread: true },
+			messages: messages.map((message, index) => (index === 0 ? { ...message, unread: true } : message)),
+			failedMessageIds: ['m9'],
+		})
+		renderRoute()
+		await waitFor(() =>
+			expect(fns.markMessagesRead).toHaveBeenCalledWith({
+				data: { threadId: 'th1', messageIds: [messages[0]?.id] },
+			}),
+		)
+		expect(fns.markThreadRead).not.toHaveBeenCalled()
+	})
+
+	it('holds every reply on a result that only partly loaded, and keeps it readable', async () => {
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] },
+			messages,
+			failedMessageIds: ['m9'],
+		})
+		renderRoute()
+		const paused = await waitFor(() => document.querySelector('[data-slot="replies-paused"]') as HTMLElement)
+		expect(paused).toBeInTheDocument()
+		for (const name of ['Reply', 'Reply all', 'Forward']) {
+			expect(screen.getByRole('button', { name })).toBeDisabled()
+		}
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+		const calls = fns.getThreadMessages.mock.calls.length
+		await userEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(fns.getThreadMessages.mock.calls.length).toBeGreaterThan(calls))
+	})
+
+	it('keeps the results when the chosen result cannot load, and retries it in the reader', async () => {
+		seedDetail({ thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] }, messages })
+		const seed = Route.useLoaderData()
+		Route.useLoaderData = vi.fn(() => ({ ...seed, selected: null }))
+		fns.getThreadMessages.mockRejectedValue(new Error('provider down'))
+		renderRoute()
+		expect(await screen.findByText('Couldn’t load this conversation.')).toBeInTheDocument()
+		// The results stay beside it.
+		expect(screen.getByRole('link', { name: /Open row/ })).toBeInTheDocument()
+		const calls = fns.getThreadMessages.mock.calls.length
+		await userEvent.click(screen.getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(fns.getThreadMessages.mock.calls.length).toBeGreaterThan(calls))
+		expect(h.invalidate).toHaveBeenCalled()
+	})
+
+	it('sends a scheduled message now, or cancels it into the composer, and reports a failure', async () => {
+		const later = Math.floor(Date.now() / 1000) + 86_400
+		seedDetail({
+			thread: { id: 'th-s', subject: 'Re: Q3 offsite agenda', folders: ['sent'] },
+			messages: [
+				{
+					id: 'm-in',
+					from: [{ name: 'Grace', email: 'grace@x.com' }],
+					to: [{ email: 'me@x.com' }],
+					body: 'Agenda?',
+				},
+				{
+					id: 'm-out',
+					from: [{ email: 'me@x.com' }],
+					to: [{ name: 'Grace', email: 'grace@x.com' }],
+					subject: 'Re: Q3 offsite agenda',
+					body: 'Thanks for pulling this together.',
+					send_at: later,
+					schedule_id: 'sched-1',
+				},
+			],
+		})
+		fns.sendScheduledNow
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', message: { id: 'sent' } })
+			.mockRejectedValueOnce(new Error('x'))
+		fns.cancelScheduledSend
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', draftId: 'd-cancelled' })
+			.mockRejectedValueOnce(new Error('x'))
+		renderRoute()
+
+		await userEvent.click(await screen.findByRole('button', { name: 'Send now' }))
+		await waitFor(() => expect(fns.sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'm-out' } }))
+		await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
+		)
+		expect(fns.cancelScheduledSend).toHaveBeenCalledWith({ data: { messageId: 'm-out' } })
+
+		await userEvent.click(screen.getByRole('button', { name: 'Send now' }))
+		expect(await screen.findByText('Could not send it now')).toBeInTheDocument()
+		composeApi.openCompose.mockClear()
+		await userEvent.click(screen.getByRole('button', { name: 'Cancel' }))
+		expect(await screen.findByText('Could not cancel the scheduled send')).toBeInTheDocument()
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+	})
+
+	it('discards your draft in the result, and says so when it cannot', async () => {
+		seedDetail({
+			thread: { id: 'th-d', subject: 'Lisbon', folders: ['inbox'] },
+			messages: [
+				{
+					id: 'm-in',
+					from: [{ name: 'Mary', email: 'mary@x.com' }],
+					to: [{ email: 'me@x.com' }],
+					body: 'Hotel?',
+					date: 1_700_000_000,
+				},
+				{
+					id: 'd-1',
+					from: [{ email: 'me@x.com' }],
+					to: [{ name: 'Mary', email: 'mary@x.com' }],
+					body: 'Legal said the 20th',
+					date: 1_700_000_100,
+				},
+			],
+			ownmailDraftMessageIds: ['d-1'],
+		})
+		fns.deleteDraft.mockRejectedValueOnce(new Error('x')).mockResolvedValueOnce({ removedDraftId: 'd-1' })
+		renderRoute()
+		await userEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+		expect(await screen.findByText('Could not discard the draft')).toBeInTheDocument()
+		// It is still there to try again; once discarded it leaves the thread.
+		await userEvent.click(await screen.findByRole('button', { name: 'Discard' }))
+		await waitFor(() => expect(fns.deleteDraft).toHaveBeenLastCalledWith({ data: { draftId: 'd-1' } }))
+		await waitFor(() => expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull())
+	})
+
 	it('lets search results follow the chosen list density', async () => {
 		seedDetail({ thread: { id: 'th1', subject: 'Subject A', folders: ['inbox'] }, messages })
 		renderRoute()
@@ -838,10 +1004,58 @@ describe('/mail/search thread detail', () => {
 			await waitFor(() => expect(resultsList()).toHaveAttribute('data-density', 'compact'))
 			// Result rows are the shared thread row, so the density applies to them too.
 			expect(resultsList()?.querySelector('[data-nav-row]')).toHaveClass('thread-row')
-			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-lead')).not.toBeNull()
+			expect(resultsList()?.querySelector('[data-nav-row] .thread-row-star')).not.toBeNull()
 		} finally {
 			window.localStorage.clear()
 		}
+	})
+
+	it('closes the thread map sheet on Escape and keeps the conversation open', async () => {
+		const user = userEvent.setup()
+		seedDetail({ thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] }, messages })
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'More' }))
+		await user.click(await screen.findByRole('menuitemcheckbox', { name: /Thread map/ }))
+		const sheet = await screen.findByRole('dialog')
+		await user.keyboard('{Escape}')
+
+		await waitFor(() => expect(sheet).not.toBeInTheDocument())
+		expect(h.navigate).not.toHaveBeenCalled()
+		expect(screen.getByText('Subject A')).toBeInTheDocument()
+	})
+
+	it('replies to the first other person on your own latest message, never to you', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] },
+			messages: [
+				...messages,
+				{ id: 'm4', from: [{ email: 'me@x.com' }], to: [{ email: 'dan@x.com' }], body: 'Mine' },
+			],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', to: 'dan@x.com', replyToMessageId: 'm4' }),
+		)
+	})
+
+	it('leaves To empty when the latest message names nobody to reply to', async () => {
+		const user = userEvent.setup()
+		seedDetail({
+			thread: { id: 'th1', subject: 'Subject A', starred: false, folders: ['inbox'] },
+			messages: [{ id: 'm-bare', body: 'No addressing at all' }],
+			mailboxEmail: 'me@x.com',
+		})
+		renderRoute()
+
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', to: '', replyToMessageId: 'm-bare' }),
+		)
 	})
 
 	it('renders the shared reader and routes reply actions + toolbar to the composer/list', async () => {
@@ -1342,13 +1556,16 @@ describe('/mail/search thread detail', () => {
 		})
 		renderRoute()
 		const toolbar = screen.getByRole('toolbar', { name: 'Thread actions' })
-		const reply = screen.getByRole('button', { name: 'Reply to thread' })
-		const replyAll = screen.getByRole('button', { name: 'Reply all to thread' })
-		const forward = screen.getByRole('button', { name: 'Forward thread' })
+		// The phone bar of board 03, as in the thread route: Reply all labelled, Reply and Forward square.
+		const reply = within(toolbar).getByRole('button', { name: 'Reply' })
+		const replyAll = within(toolbar).getByRole('button', { name: 'Reply all' })
+		const forward = within(toolbar).getByRole('button', { name: 'Forward' })
 
 		expect(toolbar).toHaveClass('mobile-thread-tabs')
-		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
-		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
+		// Every action keeps the 44px touch target.
+		expect(replyAll).toHaveClass('h-11')
+		expect(replyAll).toHaveTextContent('Reply all')
+		for (const action of [reply, forward]) expect(action).toHaveClass('size-11')
 		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
 		expect(desktopReply).toHaveClass('hidden', 'md:flex')
 		expect(desktopReply.parentElement).not.toHaveClass('border-t')
@@ -1480,6 +1697,16 @@ describe('/mail/search keyboard shortcuts', () => {
 		renderRoute()
 
 		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', bubbles: true }))
+
+		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('leaves the conversation open when something else has already handled Escape', async () => {
+		seedKeyboardDetail()
+		renderRoute()
+		// Radix dismisses a dialog or popover by preventing the Escape it closed on.
+		window.addEventListener('keydown', (event) => event.preventDefault(), { capture: true, once: true })
+		window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }))
 
 		expect(h.navigate).not.toHaveBeenCalled()
 	})
@@ -1706,6 +1933,22 @@ describe('/mail/search row context menu', () => {
 		const row = screen.getByRole('link', { name: /Open Other result/ }).closest('[data-nav-row]')
 		expect(row).toContainElement(alert)
 		expect(h.navigate).not.toHaveBeenCalled()
+	})
+
+	it('reports on the row instead of answering a thread that only partly loaded', async () => {
+		fns.getThreadMessages.mockResolvedValue({
+			thread: result('other', 'Other result'),
+			messages: [{ id: 'm1', subject: 'Other result', from: [{ email: 'old@example.com' }] }],
+			mailboxEmail: 'me@x.com',
+			failedMessageIds: ['m2'],
+		})
+		renderRoute()
+
+		await openMenu('Other result')
+		choose('Reply')
+
+		expect(await screen.findByRole('alert')).toHaveTextContent('Action failed')
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
 	})
 
 	it('reports a failed star on its row and clears it on the next attempt', async () => {

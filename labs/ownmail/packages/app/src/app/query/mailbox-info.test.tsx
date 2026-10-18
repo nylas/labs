@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { QueryClient } from '@tanstack/react-query'
+import { onlineManager, QueryClient } from '@tanstack/react-query'
 import { afterEach, expect, it, vi } from 'vitest'
 import { accountScope, resetAccountScope, UNKNOWN_ACCOUNT_SCOPE } from '#app/lib/account-scope'
 
@@ -36,3 +36,12 @@ it.each(['bootstrap', 'refresh'])(
 		client.clear()
 	},
 )
+
+it('fails at once offline instead of waiting for a connection', async () => {
+	const client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	onlineManager.setOnline(false)
+	getMailboxInfo.mockRejectedValueOnce(new TypeError('Failed to fetch'))
+	await expect(ensureMailboxInfo(client, true)).rejects.toThrow('Failed to fetch')
+	onlineManager.setOnline(true)
+	client.clear()
+})

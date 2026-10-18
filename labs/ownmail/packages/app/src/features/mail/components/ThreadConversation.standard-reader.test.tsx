@@ -3,7 +3,9 @@
 import { readFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
+import { cleanup, fireEvent, type RenderOptions, render as renderInDom, screen } from '@testing-library/react'
+import type { ReactElement, ReactNode } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { USER_PREFERENCES_STORAGE_KEY } from '#app/preferences/user-preferences'
 import type { MailMessage, MailThread } from '../state/mail-queries'
@@ -26,7 +28,12 @@ import { THREAD_TOOLBAR_ACTIONS_ID, ThreadConversation } from './ThreadConversat
  * context-menu trigger. Radix adds exactly one attribute to that existing
  * element, `data-state="closed"`, and no element, class or text. That
  * attribute is left out of the comparison, the same way the view switch is;
- * everything else about the header row is still compared.
+ * everything else about the header row is still compared. *
+ * They were re-recorded a second time, deliberately, for the reading redesign
+ * (TW-7709): read messages fold into one-line and stacked rows, the thread
+ * header gains its meta line, open messages take the shared message header,
+ * and the reply card is pinned under the stream. They record the integrated
+ * reader: the real message header, avatars, notices, files and edge states.
  */
 
 const { originalColorSendersMock } = vi.hoisted(() => ({ originalColorSendersMock: vi.fn() }))
@@ -35,11 +42,34 @@ vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 	originalColorSenders: originalColorSendersMock,
 }))
 
+// The side-thread lookup searches the mailbox; here it finds nothing.
+vi.mock('#server/fns', async (importOriginal) => ({
+	...(await importOriginal<typeof import('#server/fns')>()),
+	getThreads: vi.fn(async () => ({ threads: [] })),
+}))
+
+/** The reader always sits inside the app's query client. */
+function render(ui: ReactElement, options?: RenderOptions) {
+	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+	const Providers = ({ children }: { children: ReactNode }) => (
+		<QueryClientProvider client={queryClient}>{children}</QueryClientProvider>
+	)
+	return renderInDom(ui, { wrapper: Providers, ...options })
+}
+
 beforeEach(() => {
 	originalColorSendersMock.mockResolvedValue([])
 	// Timestamps are formatted in the viewer's locale and zone; pin them so the
 	// golden file is the same on every machine.
 	vi.spyOn(Date.prototype, 'toLocaleString').mockReturnValue('Mon, Sep 28, 9:12 AM')
+	// Relative days ("Sep 28 – today", "Mon") are written from the reader's clock and zone: pin both.
+	vi.spyOn(Date, 'now').mockReturnValue(1_790_600_000_000)
+	const resolvedOptions = Intl.DateTimeFormat.prototype.resolvedOptions
+	vi.spyOn(Intl.DateTimeFormat.prototype, 'resolvedOptions').mockImplementation(function (
+		this: Intl.DateTimeFormat,
+	) {
+		return { ...resolvedOptions.call(this), timeZone: 'UTC' }
+	})
 })
 
 afterEach(() => {
@@ -114,7 +144,8 @@ describe('standard reader with the Conversation view off', () => {
 				<p>after the last message</p>
 			</ThreadConversation>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
 		await screen.findByTitle('Email content m2')
 
 		await expect(readerMarkup(container)).toMatchFileSnapshot('./__tests__/standard-reader.golden.txt')
@@ -148,7 +179,8 @@ describe('standard reader with the Conversation view off', () => {
 				<p>after the last message</p>
 			</ThreadConversation>,
 		)
-		fireEvent.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
+		fireEvent.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
 		await screen.findByTitle('Email content m2')
 
 		// Compared, not recorded: only the first test may write the golden file.

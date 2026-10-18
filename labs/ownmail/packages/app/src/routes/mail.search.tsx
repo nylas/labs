@@ -1,4 +1,4 @@
-import type { Message, Thread } from '@nylas-labs/cli-kit/v3'
+import type { Thread } from '@nylas-labs/cli-kit/v3'
 import { type QueryClient, useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query'
 import { createFileRoute, Link, useRouter } from '@tanstack/react-router'
 import { Archive, ArrowLeft, Forward, Inbox, Loader2, Reply, ReplyAll, Star, Trash2 } from 'lucide-react'
@@ -8,12 +8,15 @@ import { ensureMailboxInfo } from '#app/query/mailbox-info'
 import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
+import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
+import { REPLIES_PAUSED_TITLE, RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
 import { ReadingPaneDivider } from '#features/mail/components/ReadingPaneDivider'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
+import { ThreadListEnvironment, useThreadListEnvValue } from '#features/mail/components/ThreadListGroups'
 import { ThreadListSkeleton } from '#features/mail/components/ThreadListSkeleton'
+import { ThreadLoadError } from '#features/mail/components/ThreadLoadError'
 import { ThreadReaderSkeleton } from '#features/mail/components/ThreadReaderSkeleton'
-import { MobileThreadResponseActions } from '#features/mail/components/ThreadResponseActions'
 import {
 	THREAD_ROW_CLASS,
 	THREAD_ROW_LINK_CLASS,
@@ -33,18 +36,24 @@ import {
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
 import { readingPaneLayout, readingPaneSizeStyle } from '#features/mail/lib/reading-pane'
-import { findCachedThread } from '#features/mail/state/mail-cache'
+import { replyBase, replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
+import { cachedCorrespondents, findCachedThread } from '#features/mail/state/mail-cache'
 import {
-	markThreadReadOnOpen,
+	markOpenedThreadRead,
 	openThreadDetail,
+	useDeleteDraftMutation,
+	useScheduledSendAction,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
 import {
 	foldersQueryOptions,
+	headerFactsState,
 	type MailFolder,
+	type MailThreadDetail,
 	type MailThreadListData,
 	mailKeys,
 	threadDetailQueryOptions,
+	threadHeaderFactsQueryOptions,
 	threadListQueryOptions,
 	toMailFolder,
 	toMailThread,
@@ -56,7 +65,7 @@ import {
 	threadResponseSearch,
 } from '#features/mail/state/thread-response'
 import { useBulkTriage } from '#features/mail/state/use-bulk-triage'
-import { getFolders, getThreadMessages, getThreads } from '#server/fns'
+import { getFolders, getThreadHeaderFacts, getThreadMessages, getThreads } from '#server/fns'
 import { UNDER_MOBILE_BAR_CLASS, UNDER_PINNED_BAR_CLASS } from '#shared/components/ui/glass'
 import { Toolbar } from '#shared/components/ui/toolbar'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
@@ -92,13 +101,14 @@ export const Route = createFileRoute('/mail/search')({
 						},
 					})
 				: Promise.resolve(emptyResults),
+			// A result that cannot load keeps the results; the reader says so and retries in place.
 			hasSearchQuery && deps.threadId
 				? openThreadDetail(
 						context.queryClient,
 						deps.threadId,
 						{ preload, queryKey: mailKeys.threadDetail(deps.threadId), cacheAs: toMailThreadDetail },
 						() => getThreadMessages({ data: { threadId: deps.threadId as string } }),
-					)
+					).catch(() => null)
 				: null,
 		])
 		return { ...res, folders, folderId: deps.folderId, selected }
@@ -262,7 +272,9 @@ function SearchResults() {
 	)
 	const folders = seededData(foldersQuery.data, seedFolders)
 	const folderId = initial.folderId
-	const selected = hasSearchQuery ? (selectedQuery.data as typeof initial.selected) : null
+	const selected = hasSearchQuery ? (selectedQuery.data ?? null) : null
+	// The results' rows name you, see your mutes and carry their own day: there are no day groups here.
+	const listEnv = useThreadListEnvValue({ grouped: false })
 	const [preferences, savePreferences] = useUserPreferences()
 	const layout = readingPaneLayout(preferences.readingPane, Boolean(selected))
 	const listScrollRef = useRef<HTMLDivElement>(null)
@@ -354,168 +366,179 @@ function SearchResults() {
 	/* v8 ignore stop -- @preserve */
 
 	// Server-rendered deep links skip the client loader; mark the selected
-	// result read once per selection without undoing a later unread choice.
+	// result read once per selection (and once more when Try again completes a
+	// partial load, which marks only the messages shown) without undoing a
+	// later unread choice.
 	const readRequestedFor = useRef<string | null>(null)
 	useEffect(() => {
-		if (!selected || readRequestedFor.current === selected.thread.id) return
-		readRequestedFor.current = selected.thread.id
-		if (selected.thread.unread)
-			markThreadReadOnOpen(queryClient, selected.thread.id, toMailThread(selected.thread))
+		if (!selected) return
+		const request = `${selected.thread.id}:${selected.failedMessageIds?.length ? 'shown' : 'all'}`
+		if (readRequestedFor.current === request) return
+		readRequestedFor.current = request
+		markOpenedThreadRead(queryClient, selected.thread.id, selected)
 	}, [queryClient, selected])
 
 	return (
-		<div className={layout.container} style={readingPaneSizeStyle(preferences)}>
-			<section
-				data-navigation-region="mail-list"
-				className={layout.list}
-				data-density={preferences.listDensity}
-			>
-				<Toolbar
-					pinned={!selection.selecting}
-					className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
+		<ThreadListEnvironment value={listEnv}>
+			<div className={layout.container} style={readingPaneSizeStyle(preferences)}>
+				<section
+					data-navigation-region="mail-list"
+					className={layout.list}
+					data-density={preferences.listDensity}
 				>
-					{selection.selecting ? (
-						<BulkMailToolbar selection={selection} />
-					) : (
-						<>
-							<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
-							<div className="flex items-center gap-1">
-								<BulkMailToolbar selection={selection} />
-								{unreadCount > 0 ? (
-									<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
-										{unreadCount}
-									</span>
-								) : null}
-								<ListDensityMenu
-									value={preferences.listDensity}
-									onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
-								/>
-								<ReadingPaneMenu
-									value={preferences.readingPane}
-									onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
-								/>
-							</div>
-						</>
-					)}
-				</Toolbar>
+					<Toolbar
+						pinned={!selection.selecting}
+						className={cn('justify-between px-4', selection.selecting && 'h-auto min-h-12 py-2')}
+					>
+						{selection.selecting ? (
+							<BulkMailToolbar selection={selection} />
+						) : (
+							<>
+								<h1 className="font-display text-base font-semibold capitalize">{title}</h1>
+								<div className="flex items-center gap-1">
+									<BulkMailToolbar selection={selection} />
+									{unreadCount > 0 ? (
+										<span className="rounded-full bg-primary px-2 py-0.5 text-xs font-semibold text-primary-foreground">
+											{unreadCount}
+										</span>
+									) : null}
+									<ListDensityMenu
+										value={preferences.listDensity}
+										onChange={(listDensity) => savePreferences({ ...preferences, listDensity })}
+									/>
+									<ReadingPaneMenu
+										value={preferences.readingPane}
+										onChange={(readingPane) => savePreferences({ ...preferences, readingPane })}
+									/>
+								</div>
+							</>
+						)}
+					</Toolbar>
 
-				<div
-					ref={listScrollRef}
-					onScroll={(event) => {
-						searchListScroll.identity = searchListIdentity(q, folderId)
-						searchListScroll.top = event.currentTarget.scrollTop
-					}}
-					className={cn(
-						'min-h-0 flex-1 overflow-y-auto',
-						!selection.selecting && UNDER_PINNED_BAR_CLASS,
-						UNDER_MOBILE_BAR_CLASS,
-						sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
-					)}
-				>
-					{sortedThreads.length === 0 ? (
-						<div
-							key={q}
-							role="status"
-							aria-live="polite"
-							aria-atomic="true"
-							className={cn(
-								'flex flex-col items-center justify-center gap-1 px-6 text-center',
-								canLoadMore ? 'min-h-0 flex-1 py-6' : 'h-full',
-							)}
-						>
-							<p className="font-display text-sm font-semibold text-foreground">
-								{hasSearchQuery
-									? canLoadMore
-										? 'More messages may be available'
-										: 'No messages found'
-									: 'Search your mail'}
-							</p>
-							<p className="text-sm text-muted-foreground">
-								{hasSearchQuery
-									? canLoadMore
-										? 'Load the next page to continue searching.'
-										: 'Try different keywords or clear the search.'
-									: 'Enter keywords above to find messages.'}
-							</p>
+					<div
+						ref={listScrollRef}
+						onScroll={(event) => {
+							searchListScroll.identity = searchListIdentity(q, folderId)
+							searchListScroll.top = event.currentTarget.scrollTop
+						}}
+						className={cn(
+							'min-h-0 flex-1 overflow-y-auto',
+							!selection.selecting && UNDER_PINNED_BAR_CLASS,
+							UNDER_MOBILE_BAR_CLASS,
+							sortedThreads.length === 0 && canLoadMore && 'flex flex-col',
+						)}
+					>
+						{sortedThreads.length === 0 ? (
+							<div
+								key={q}
+								role="status"
+								aria-live="polite"
+								aria-atomic="true"
+								className={cn(
+									'flex flex-col items-center justify-center gap-1 px-6 text-center',
+									canLoadMore ? 'min-h-0 flex-1 py-6' : 'h-full',
+								)}
+							>
+								<p className="font-display text-sm font-semibold text-foreground">
+									{hasSearchQuery
+										? canLoadMore
+											? 'More messages may be available'
+											: 'No messages found'
+										: 'Search your mail'}
+								</p>
+								<p className="text-sm text-muted-foreground">
+									{hasSearchQuery
+										? canLoadMore
+											? 'Load the next page to continue searching.'
+											: 'Try different keywords or clear the search.'
+										: 'Enter keywords above to find messages.'}
+								</p>
+							</div>
+						) : (
+							sortedThreads.map((thread, index) => (
+								<SearchThreadRow
+									key={thread.id}
+									thread={thread}
+									q={q}
+									searchFolderId={folderId}
+									active={thread.id === threadId}
+									keyboardActive={cursor === index}
+									selection={
+										selection.selecting
+											? {
+													checked: selection.selectedIds.includes(thread.id),
+													disabled: selection.pending,
+													onToggle: () => selection.toggle(thread.id),
+												}
+											: undefined
+									}
+								/>
+							))
+						)}
+						{canLoadMore ? (
+							<div className="border-t border-border p-3">
+								{threadsQuery.isFetchNextPageError ? (
+									<p
+										id="search-pagination-error"
+										role="alert"
+										className="mb-2 text-center text-xs text-destructive"
+									>
+										Could not load more results. Check your connection, then try again.
+									</p>
+								) : null}
+								<button
+									type="button"
+									onClick={() => void loadMoreSearchResults()}
+									disabled={threadsQuery.isFetchingNextPage}
+									aria-busy={threadsQuery.isFetchingNextPage}
+									aria-describedby={threadsQuery.isFetchNextPageError ? 'search-pagination-error' : undefined}
+									className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
+								>
+									{threadsQuery.isFetchingNextPage ? (
+										<>
+											<Loader2 className="h-4 w-4 animate-spin" /> Loading more search results…
+										</>
+									) : threadsQuery.isFetchNextPageError ? (
+										'Try loading more search results'
+									) : (
+										'Load more search results'
+									)}
+								</button>
+							</div>
+						) : null}
+					</div>
+				</section>
+				<ReadingPaneDivider />
+				<section data-navigation-region="mail-reader" className={layout.reader}>
+					{selected ? (
+						<SearchThreadDetail
+							key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
+							selected={selected}
+							q={q}
+							folderId={folderId}
+							onRetryLoad={() => void selectedQuery.refetch()}
+						/>
+					) : hasSearchQuery && threadId && selectedQuery.isError ? (
+						// The result could not load: the same card as the thread route's error, in the reader.
+						<div className="flex min-h-0 min-w-0 flex-1 flex-col bg-background">
+							<ThreadLoadError error={selectedQuery.error} reset={() => void selectedQuery.refetch()} />
 						</div>
 					) : (
-						sortedThreads.map((thread, index) => (
-							<SearchThreadRow
-								key={thread.id}
-								thread={thread}
-								q={q}
-								searchFolderId={folderId}
-								active={thread.id === threadId}
-								keyboardActive={cursor === index}
-								selection={
-									selection.selecting
-										? {
-												checked: selection.selectedIds.includes(thread.id),
-												disabled: selection.pending,
-												onToggle: () => selection.toggle(thread.id),
-											}
-										: undefined
-								}
-							/>
-						))
-					)}
-					{canLoadMore ? (
-						<div className="border-t border-border p-3">
-							{threadsQuery.isFetchNextPageError ? (
-								<p
-									id="search-pagination-error"
-									role="alert"
-									className="mb-2 text-center text-xs text-destructive"
-								>
-									Could not load more results. Check your connection, then try again.
+						<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
+							<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
+								<Reply className="h-6 w-6" />
+							</div>
+							<div>
+								<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
+								<p className="mt-1 text-sm text-muted-foreground">
+									Choose a message from the list to read it here.
 								</p>
-							) : null}
-							<button
-								type="button"
-								onClick={() => void loadMoreSearchResults()}
-								disabled={threadsQuery.isFetchingNextPage}
-								aria-busy={threadsQuery.isFetchingNextPage}
-								aria-describedby={threadsQuery.isFetchNextPageError ? 'search-pagination-error' : undefined}
-								className="flex min-h-11 w-full items-center justify-center gap-2 rounded-lg border border-border bg-card px-4 py-2.5 text-sm font-medium transition-colors hover:bg-muted disabled:opacity-60"
-							>
-								{threadsQuery.isFetchingNextPage ? (
-									<>
-										<Loader2 className="h-4 w-4 animate-spin" /> Loading more search results…
-									</>
-								) : threadsQuery.isFetchNextPageError ? (
-									'Try loading more search results'
-								) : (
-									'Load more search results'
-								)}
-							</button>
+							</div>
 						</div>
-					) : null}
-				</div>
-			</section>
-			<ReadingPaneDivider />
-			<section data-navigation-region="mail-reader" className={layout.reader}>
-				{selected ? (
-					<SearchThreadDetail
-						key={JSON.stringify([selected.thread.id, q, folderId ?? null])}
-						selected={selected}
-						q={q}
-						folderId={folderId}
-					/>
-				) : (
-					<div className="hidden min-w-0 flex-1 flex-col items-center justify-center gap-3 bg-background px-6 text-center xl:flex">
-						<div className="flex h-14 w-14 items-center justify-center rounded-xl border border-border bg-card text-muted-foreground shadow-sm">
-							<Reply className="h-6 w-6" />
-						</div>
-						<div>
-							<p className="font-display text-sm font-semibold text-foreground">Select a conversation</p>
-							<p className="mt-1 text-sm text-muted-foreground">
-								Choose a message from the list to read it here.
-							</p>
-						</div>
-					</div>
-				)}
-			</section>
-		</div>
+					)}
+				</section>
+			</div>
+		</ThreadListEnvironment>
 	)
 }
 
@@ -648,19 +671,42 @@ function SearchThreadDetail({
 	selected,
 	q,
 	folderId,
+	onRetryLoad,
 }: {
-	selected: { thread: Thread; messages: Message[]; mailboxEmail: string }
+	selected: MailThreadDetail
 	q: string
 	folderId?: string
+	onRetryLoad: () => void
 }) {
 	const [{ readingPane }] = useUserPreferences()
 	const router = useRouter()
+	const queryClient = useQueryClient()
 	const { openCompose } = useCompose()
 	const updateThread = useUpdateThreadMutation()
-	const lastMessage = selected.messages.at(-1)
+	const deleteDraft = useDeleteDraftMutation()
+	// The same sender checks as the thread route: header facts once per thread, people already in the list cache.
+	const headerFactsQuery = useQuery(
+		threadHeaderFactsQueryOptions(
+			selected.thread.id,
+			streamMessages(selected.messages, true).at(-1)?.id,
+			/* v8 ignore next -- @preserve production query wiring is covered through the query-option tests */
+			(id) => getThreadHeaderFacts({ data: { threadId: id } }),
+		),
+	)
+	const headerFacts = headerFactsQuery.data
+	const knownSenders = useMemo(
+		() => cachedCorrespondents(queryClient, selected.mailboxEmail),
+		[queryClient, selected.mailboxEmail],
+	)
+	// Replies answer the latest message anyone sent: never your own unsent draft, nor a bounce report.
+	const lastMessage = replyBase(selected.messages)
+	// Part of the thread did not load, so the newest message may be the missing
+	// one: replies wait for the whole conversation (Try again), reading does not.
+	const partial = (selected.failedMessageIds?.length ?? 0) > 0
 	const searchList = useMemo(() => searchListSearch(q, folderId), [folderId, q])
 	const isArchived = folderId === 'archive' || selected.thread.folders?.includes('archive') === true
 	const [error, setError] = useState<string | null>(null)
+	const scheduledSend = useScheduledSendAction(setError)
 	// The optimistic mutation writes the star into the cached thread, so the
 	// control reads the same source as the conversation beside it.
 	const starred = Boolean(selected.thread.starred)
@@ -678,7 +724,13 @@ function SearchThreadDetail({
 	const reply = () => {
 		/* v8 ignore next -- every exposed search reply entry point requires a latest message -- @preserve */
 		if (!lastMessage) return
-		void openCompose({ kind: 'reply', threadId: selected.thread.id, ...replyDraftSearch(lastMessage) })
+		// A plain reply to your own latest message goes to the first other person on it, as in the thread route.
+		void openCompose({
+			kind: 'reply',
+			threadId: selected.thread.id,
+			...replyDraftSearch(lastMessage),
+			to: replyTarget(lastMessage, selected.mailboxEmail)?.email ?? '',
+		})
 	}
 	const replyAll = () => {
 		/* v8 ignore next -- every exposed search reply-all entry point requires a latest message -- @preserve */
@@ -703,7 +755,8 @@ function SearchThreadDetail({
 			if (isTyping || event.repeat || event.metaKey || event.ctrlKey || event.altKey) return
 			// Escape inside an open menu closes that menu, not the conversation.
 			if (target?.closest?.('[role="menu"]')) return
-			if (event.key === 'Escape') {
+			// Escape that closed something first (the map sheet, the raw headers dialog) is spent.
+			if (event.key === 'Escape' && !event.defaultPrevented) {
 				event.preventDefault()
 				router.navigate({
 					to: '/mail/search',
@@ -809,13 +862,13 @@ function SearchThreadDetail({
 
 				{lastMessage ? (
 					<div className="ml-auto hidden items-center gap-1 sm:flex">
-						<ActionButton label="Reply" onClick={reply}>
+						<ActionButton label="Reply" onClick={reply} paused={partial}>
 							<Reply className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton label="Reply all" onClick={replyAll}>
+						<ActionButton label="Reply all" onClick={replyAll} paused={partial}>
 							<ReplyAll className="h-4 w-4" />
 						</ActionButton>
-						<ActionButton label="Forward" onClick={forward}>
+						<ActionButton label="Forward" onClick={forward} paused={partial}>
 							<Forward className="h-4 w-4" />
 						</ActionButton>
 					</div>
@@ -846,12 +899,27 @@ function SearchThreadDetail({
 					thread={selected.thread}
 					messages={selected.messages}
 					mailboxEmail={selected.mailboxEmail}
+					headerFacts={headerFacts}
+					headerFactsState={headerFactsState(headerFactsQuery)}
+					{...(selected.failedMessageIds ? { failedMessageIds: selected.failedMessageIds } : {})}
+					knownSenders={knownSenders}
+					onRetryLoad={onRetryLoad}
+					onDiscardDraft={(draftId) =>
+						deleteDraft.mutateAsync(draftId).catch(() => setError('Could not discard the draft'))
+					}
+					onScheduledSend={scheduledSend}
 				/>
 			</div>
 
-			{lastMessage ? (
+			{partial ? (
+				<div className="mx-5 my-3 lg:mx-8">
+					<RepliesPausedNotice onRetry={onRetryLoad} />
+				</div>
+			) : lastMessage ? (
 				<>
-					<MobileThreadResponseActions onReply={reply} onReplyAll={replyAll} onForward={forward} />
+					<div className="md:hidden">
+						<MobileReplyBar onReply={reply} onReplyAll={replyAll} onForward={forward} />
+					</div>
 					<button
 						type="button"
 						onClick={reply}
@@ -898,10 +966,13 @@ function IconButton({
 function ActionButton({
 	label,
 	onClick,
+	paused = false,
 	children,
 }: {
 	label: string
 	onClick?: () => void
+	/** Part of the thread did not load: the control stays in place, unavailable. */
+	paused?: boolean
 	children: React.ReactNode
 }) {
 	return (
@@ -909,8 +980,9 @@ function ActionButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			title={label}
-			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring xl:h-9 xl:w-9"
+			title={paused ? REPLIES_PAUSED_TITLE : label}
+			disabled={paused}
+			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 xl:h-9 xl:w-9"
 		>
 			{children}
 		</button>

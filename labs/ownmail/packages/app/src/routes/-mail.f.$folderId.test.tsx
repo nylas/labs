@@ -20,7 +20,7 @@ const navigate = vi.fn()
 vi.mock('@tanstack/react-router', async (importOriginal) => ({
 	Await: (await importOriginal<any>()).Await,
 	createFileRoute: () => (opts: any) => ({ options: opts }),
-	useRouter: () => ({ invalidate }),
+	useRouter: () => ({ invalidate, routesById: {} }),
 	useNavigate: () => navigate,
 	useRouterState: (opts: any) => opts.select(routerState),
 	Outlet: () => <div data-testid="thread-outlet" />,
@@ -51,7 +51,11 @@ const listDrafts = vi.fn()
 const updateThreadState = vi.fn()
 const deleteDraft = vi.fn()
 const getThreadMessages = vi.fn()
+const sendScheduledNow = vi.fn()
+const cancelScheduledSend = vi.fn()
 vi.mock('#server/fns', () => ({
+	sendScheduledNow: (input: any) => sendScheduledNow(input),
+	cancelScheduledSend: (input: any) => cancelScheduledSend(input),
 	getThreadMessages: (input: any) => getThreadMessages(input),
 	deleteDraft: (input: any) => deleteDraft(input),
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
@@ -73,6 +77,19 @@ vi.mock('#shared/components/ClientTime', () => ({
 				{epochSeconds ? 'date' : ''}
 			</time>
 		)
+	},
+}))
+
+// Row times are set in the browser only (zone and clock); the same stable marker
+// stands in for them, and counts toward the same re-render budget.
+vi.mock('#features/mail/components/ThreadRowTime', () => ({
+	ThreadRowTime: ({ epochSeconds, className }: { epochSeconds?: number; className?: string }) => {
+		listDateRenders.count += 1
+		return epochSeconds ? (
+			<time data-epoch={epochSeconds} className={className}>
+				date
+			</time>
+		) : null
 	},
 }))
 
@@ -288,10 +305,10 @@ describe('FolderView (route component)', () => {
 				<Component />
 			</QueryClientProvider>,
 		)
-		expect(screen.getByText('1')).toBeInTheDocument()
+		expect(screen.getByText('1 unread')).toBeInTheDocument()
 
 		fireEvent.click(screen.getByRole('button', { name: 'Refresh mail' }))
-		expect(await screen.findByText('3')).toBeInTheDocument()
+		expect(await screen.findByText('3 unread')).toBeInTheDocument()
 	})
 
 	it('announces a generic failure when the live mail refresh rejects', async () => {
@@ -510,7 +527,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 		const listPane = screen.getByRole('heading', { name: 'Inbox' }).closest('section')
 		expect(listPane).toHaveClass(
 			'flex',
-			'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+			'xl:w-[min(var(--mail-list-width,22.5rem),calc(100%_-_360px))]',
 			'xl:flex-none',
 		)
 		expect(listPane).not.toHaveClass('md:w-[22rem]', 'md:flex-none')
@@ -547,8 +564,8 @@ describe('MailFolderRouteScreen — thread list', () => {
 		// Newest thread renders before the older one.
 		expect(rows[0]).toHaveTextContent('Newer')
 		expect(rows[1]).toHaveTextContent('Older')
-		// The folder's authoritative unread count drives the badge.
-		expect(screen.getByText('1')).toBeInTheDocument()
+		// The folder's authoritative unread count is said beside the title.
+		expect(screen.getByText('1 unread')).toHaveClass('font-data', 'text-muted-foreground')
 	})
 
 	it('uses the server folder count when the loaded page is incomplete', () => {
@@ -561,7 +578,7 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor="next-page"
 			/>,
 		)
-		expect(screen.getByText('31')).toBeInTheDocument()
+		expect(screen.getByText('31 unread')).toBeInTheDocument()
 	})
 
 	it('renders attachment, multi-message, label, and unknown-sender affordances', () => {
@@ -583,12 +600,17 @@ describe('MailFolderRouteScreen — thread list', () => {
 				nextCursor={undefined}
 			/>,
 		)
-		expect(screen.getByText('(no subject)')).toBeInTheDocument()
+		// No subject: the first line stands in for one, never "(no subject)".
+		expect(document.querySelector('.thread-row-subject')).toHaveAttribute('data-stand-in', 'true')
+		expect(document.querySelector('.thread-row-subject')).toHaveTextContent('snippet')
+		expect(screen.queryByText('(no subject)')).toBeNull()
 		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
-		// message_ids length > 1 shows the count.
-		expect(screen.getByText('(3)')).toBeInTheDocument()
-		// Thread carries the "work" label from LABELS.
-		expect(screen.getByText('Work')).toBeInTheDocument()
+		// Rows count what is new, never every message: no "(3)".
+		expect(screen.queryByText('(3)')).toBeNull()
+		// An attachment whose name the row does not know is a paperclip beside the time.
+		expect(screen.getByRole('img', { name: 'Has attachments' })).toBeInTheDocument()
+		// The thread carries the "work" label, which the reader shows; the row does not.
+		expect(screen.queryByText('Work')).toBeNull()
 	})
 
 	it('toggles a thread star without requiring a broad route refresh', async () => {
@@ -727,11 +749,11 @@ describe('MailFolderRouteScreen — drafts', () => {
 		const row = screen.getByRole('button', { name: /Plan/ })
 		expect(row).toHaveClass('thread-row')
 		expect(row).toHaveAttribute('data-nav-row')
-		// Same cells as a conversation row: leading glyph, then subject and snippet in one summary.
-		expect(row.firstElementChild).toHaveClass('thread-row-lead')
+		// Same cells as a conversation row: sender, then subject and snippet in one summary.
+		expect(row.firstElementChild).toHaveClass('thread-row-sender')
 		const summary = container.querySelector('.thread-row-summary') as HTMLElement
 		expect(Array.from(summary.children).map((cell) => cell.textContent)).toEqual(['Plan', 'Notes'])
-		// Drafts have no star action, only the static glyph.
+		// Drafts have no star action.
 		expect(screen.queryByRole('button', { name: 'Star' })).toBeNull()
 	})
 
@@ -1160,17 +1182,17 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		try {
 			render(screenFor())
 			expect(listSection()).toHaveAttribute('data-density', 'default')
-			expect(listSection()).toHaveClass('xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]')
+			expect(listSection()).toHaveClass('xl:w-[min(var(--mail-list-width,22.5rem),calc(100%_-_360px))]')
 
 			await userEvent.click(screen.getByRole('button', { name: 'List density: Default' }))
 			await userEvent.click(screen.getByRole('menuitemradio', { name: 'Condensed' }))
 
 			await waitFor(() => expect(listSection()).toHaveAttribute('data-density', 'condensed'))
 			// The choice only changes the attribute: the wider Condensed list is CSS keyed on it
-			// (fine pointers only), so touch layouts keep the 22rem list.
+			// (fine pointers only), so touch layouts keep the 22.5rem list.
 			expect(listSection()).toHaveClass(
 				'mail-list-vertical',
-				'xl:w-[min(var(--mail-list-width,22rem),calc(100%_-_360px))]',
+				'xl:w-[min(var(--mail-list-width,22.5rem),calc(100%_-_360px))]',
 			)
 			expect(listSection().className).not.toContain('26rem')
 			expect(JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').listDensity).toBe(
@@ -1203,13 +1225,14 @@ describe('MailFolderRouteScreen — reading pane', () => {
 		expect(seen?.querySelector('.thread-row-sender')).toHaveClass('font-normal')
 	})
 
-	it('keeps one row structure for every density: a leading star, then subject and snippet together', () => {
+	it('keeps one row structure for every density: sender and time, then subject and snippet together', () => {
 		const { container } = render(screenFor())
 		const row = container.querySelector('[data-nav-row]') as HTMLElement
 		// Density is pure CSS on these cells, so the markup must not vary by mode.
 		expect(Array.from(row.children).map((cell) => cell.className.split(' ')[0])).toEqual([
 			'thread-row-link',
-			'thread-row-lead',
+			'thread-row-probe',
+			'thread-row-name',
 			'thread-row-sender',
 			'thread-row-when',
 			'thread-row-text',
@@ -1534,7 +1557,7 @@ describe('MailFolderRouteScreen — keyboard navigation', () => {
 		fireEvent.keyDown(firstRow, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Second')
 		expect(document.activeElement).toHaveClass('thread-row-link')
-		expect(document.activeElement).toHaveAttribute('aria-label', expect.stringMatching(/Open Second/))
+		expect(document.activeElement).toHaveAccessibleName(/Open Second/)
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'ArrowDown' })
 		expect(cursored()).toHaveTextContent('Third')
 		fireEvent.keyDown(document.activeElement as HTMLElement, { key: 'Enter' })
@@ -1848,6 +1871,8 @@ describe('MailFolderRouteScreen — context menus', () => {
 			['Forward', null],
 			['Mark as unread', 'U'],
 			['Unstar', 'S'],
+			// Muting has no reader shortcut of its own.
+			['Mute', null],
 			['Archive', 'E'],
 			['Delete', '#'],
 		])
@@ -1858,6 +1883,7 @@ describe('MailFolderRouteScreen — context menus', () => {
 		const other = await openMenu('First')
 		expect(shortcuts(other).map(([, key]) => key)).toEqual([
 			'Enter',
+			null,
 			null,
 			null,
 			null,
@@ -2245,5 +2271,380 @@ describe('mail selection keyboard semantics', () => {
 		fireEvent.keyDown(window, { key: 'o' })
 		fireEvent.keyDown(window, { key: 'Enter' })
 		expect(navigate).not.toHaveBeenCalled()
+	})
+})
+
+describe('MailFolderRouteScreen — day groups and bundles', () => {
+	const nowSeconds = Math.floor(Date.now() / 1000)
+	const DAY = 86_400
+	const newsletter = (id: string, name: string, secondsAgo: number) =>
+		thread({
+			id,
+			subject: `${name} weekly`,
+			snippet: 'This week in product',
+			participants: [
+				{ name, email: `newsletter@${id}.com` },
+				{ name: 'Ada', email: 'ada@example.com' },
+			],
+			latest_message_received_date: nowSeconds - secondsAgo,
+			latest_draft_or_message: { id: `${id}-m`, from: [{ name, email: `newsletter@${id}.com` }] },
+		} as Partial<Thread> & { id: string })
+	const threads = [
+		thread({ id: 'today', subject: 'Today thread', latest_message_received_date: nowSeconds - 1 }),
+		newsletter('dispatch', 'The Dispatch', 3 * DAY),
+		newsletter('lenny', 'Lenny’s', 3 * DAY + 3600),
+		thread({ id: 'tokens', subject: 'Tokens', latest_message_received_date: nowSeconds - 3 * DAY - 7200 }),
+	]
+
+	function renderInbox(props: Partial<Parameters<typeof MailFolderRouteScreen>[0]> = {}) {
+		return render(
+			<MailFolderRouteScreen
+				threads={threads}
+				drafts={[]}
+				folders={[]}
+				folderId="inbox"
+				nextCursor={undefined}
+				{...props}
+			/>,
+		)
+	}
+
+	const headings = () => screen.getAllByRole('heading', { level: 2 }).map((heading) => heading.textContent)
+	const bundle = () => screen.getByRole('button', { name: /^Newsletters, 2 conversations/ })
+	const cursored = () => document.querySelector<HTMLElement>('[data-nav-row][data-nav-cursor="true"]')
+	const afterPaint = () =>
+		act(() => new Promise<void>((resolve) => requestAnimationFrame(() => setTimeout(resolve, 0))))
+
+	it('anchors the list on day groups and folds a group’s newsletters into one row that opens in place', () => {
+		renderInbox()
+		expect(headings()).toEqual(['Today', 'This week'])
+		expect(bundle()).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('link', { name: /Open The Dispatch weekly/ })).toBeNull()
+
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		const member = screen.getByRole('link', { name: /Open The Dispatch weekly/ }).closest('[data-nav-row]')
+		expect(member).toHaveAttribute('data-bundled', 'true')
+		expect(screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]')).not.toHaveAttribute(
+			'data-bundled',
+		)
+
+		fireEvent.click(bundle())
+		expect(screen.queryByRole('link', { name: /Open The Dispatch weekly/ })).toBeNull()
+	})
+
+	it('walks the bundle row with the keyboard, and opens it with Enter', () => {
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'j' })
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toBe(bundle())
+		fireEvent.keyDown(window, { key: 'Enter' })
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		expect(navigate).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'j' })
+		expect(cursored()).toHaveTextContent('The Dispatch weekly')
+	})
+
+	it('steps between open conversations past a bundle row, and stays at either end', async () => {
+		routerState = {
+			location: { pathname: '/mail/f/inbox/t/today' },
+			matches: [
+				{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId: 'today' } },
+			],
+		} as RouterState
+		renderInbox()
+		fireEvent.keyDown(window, { key: 'k' })
+		await afterPaint()
+		expect(navigate).not.toHaveBeenCalled()
+		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 'tokens' } }),
+		)
+	})
+
+	const openOn = (threadId?: string) =>
+		(threadId
+			? {
+					location: { pathname: `/mail/f/inbox/t/${threadId}` },
+					matches: [{ routeId: '/mail/f/$folderId/t/$threadId', params: { folderId: 'inbox', threadId } }],
+				}
+			: { location: { pathname: '/mail/f/inbox' }, matches: [] }) as RouterState
+	const inbox = (list = threads) => (
+		<MailFolderRouteScreen threads={list} drafts={[]} folders={[]} folderId="inbox" nextCursor={undefined} />
+	)
+	const link = (name: RegExp) => screen.getByRole('link', { name })
+
+	it('opens the bundle holding the open conversation, which then folds and opens on a click like any other', () => {
+		routerState = openOn('lenny')
+		renderInbox()
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'false')
+		expect(screen.queryByRole('link', { name: /Open Lenny’s weekly/ })).toBeNull()
+		fireEvent.click(bundle())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+	})
+
+	it('keeps that bundle open once its conversation closes, and returns focus to the conversation', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		routerState = openOn()
+		view.rerender(inbox())
+		expect(bundle()).toHaveAttribute('aria-expanded', 'true')
+		await waitFor(() => expect(link(/Open Lenny’s weekly/)).toHaveFocus())
+		expect(cursored()).toHaveTextContent('Lenny’s weekly')
+	})
+
+	it('returns focus to the bundle row when the closed conversation was folded away in it', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		fireEvent.click(bundle())
+		routerState = openOn()
+		view.rerender(inbox())
+		await waitFor(() => expect(bundle()).toHaveFocus())
+		expect(cursored()).toBe(bundle())
+	})
+
+	it('keeps the cursor on the conversation j opened, out of a bundle', async () => {
+		routerState = openOn('lenny')
+		const view = render(inbox())
+		fireEvent.keyDown(window, { key: 'j' })
+		await afterPaint()
+		expect(navigate).toHaveBeenCalledWith(
+			expect.objectContaining({ params: { folderId: 'inbox', threadId: 'tokens' } }),
+		)
+		routerState = openOn('tokens')
+		view.rerender(inbox())
+		expect(cursored()).toHaveTextContent('Tokens')
+		// A conversation arriving above moves the row, and the cursor stays on it.
+		view.rerender(
+			inbox([
+				thread({ id: 'newer', subject: 'Newer', latest_message_received_date: nowSeconds }),
+				...threads,
+			]),
+		)
+		expect(cursored()).toHaveTextContent('Tokens')
+		// When its row leaves, the cursor keeps its place.
+		view.rerender(inbox(threads.filter((item) => item.id !== 'tokens')))
+		expect(cursored()).toHaveTextContent('Lenny’s weekly')
+	})
+
+	it('keeps an unread conversation’s row unread while it is open, until another one opens', () => {
+		const unread = (list: typeof threads, id: string, value: boolean) =>
+			list.map((item) => (item.id === id ? { ...item, unread: value } : item)) as typeof threads
+		const view = render(inbox(unread(threads, 'today', true)))
+		const sender = () =>
+			link(/Open Today thread/)
+				.closest('[data-nav-row]')
+				?.querySelector('.thread-row-sender')
+		expect(link(/Open Today thread/)).toHaveAccessibleName(/^Open Today thread from Ada, unread$/)
+		// Followed while unread; by the time it is open, it has been marked read.
+		fireEvent.click(link(/Open Today thread/))
+		routerState = openOn('today')
+		view.rerender(inbox(unread(threads, 'today', false)))
+		expect(sender()).toHaveClass('font-semibold')
+		expect(link(/Open Today thread/)).toHaveAccessibleName(/unread$/)
+		routerState = openOn('tokens')
+		view.rerender(inbox(unread(threads, 'today', false)))
+		expect(sender()).toHaveClass('font-normal')
+	})
+
+	it('holds a conversation that opens unread by other means, such as a link', () => {
+		const list = threads.map((item) =>
+			item.id === 'tokens' ? { ...item, unread: true } : item,
+		) as typeof threads
+		const view = render(inbox(list))
+		routerState = openOn('tokens')
+		view.rerender(inbox(list))
+		view.rerender(inbox(threads))
+		expect(
+			link(/Open Tokens/)
+				.closest('[data-nav-row]')
+				?.querySelector('.thread-row-sender'),
+		).toHaveClass('font-semibold')
+	})
+
+	it('lists every conversation while selecting, so each can be checked', () => {
+		renderInbox()
+		fireEvent.click(screen.getByRole('button', { name: 'Select messages' }))
+		expect(screen.queryByRole('button', { name: /^Newsletters/ })).toBeNull()
+		expect(screen.getByRole('checkbox', { name: 'Select The Dispatch weekly' })).toBeInTheDocument()
+	})
+
+	it('never bundles in the folders that hold the person’s own mail', () => {
+		renderInbox({ folderId: 'sent' })
+		expect(screen.queryByRole('button', { name: /^Newsletters/ })).toBeNull()
+	})
+
+	it('groups drafts by day too', () => {
+		render(
+			<MailFolderRouteScreen
+				threads={[]}
+				drafts={
+					[
+						{ id: 'd1', to: [{ email: 'a@b.com' }], subject: 'Now', snippet: '', date: nowSeconds - 1 },
+						{ id: 'd2', to: [{ email: 'a@b.com' }], subject: 'Also now', snippet: '', date: nowSeconds - 2 },
+						{ id: 'd3', to: [{ email: 'a@b.com' }], subject: 'Undated', snippet: '' },
+					] as unknown as Draft[]
+				}
+				folders={[]}
+				folderId="drafts"
+				nextCursor={undefined}
+			/>,
+		)
+		expect(headings()).toEqual(['Today', 'Earlier'])
+	})
+
+	it('mutes and unmutes a conversation from its row menu, on this device', async () => {
+		// Mutes belong to the signed-in mailbox, which the list knows from the mailbox info.
+		const client = new QueryClient()
+		client.setQueryData(['account', 'mailbox-info'], {
+			email: 'ada@ownmail.com',
+			displayName: 'Ada Lovelace',
+		})
+		render(
+			<QueryClientProvider client={client}>
+				<MailFolderRouteScreen
+					threads={threads}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>
+			</QueryClientProvider>,
+		)
+		const row = () =>
+			screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Mute' }))
+		await waitFor(() =>
+			expect(row().querySelector('.thread-row-sender')).toHaveAttribute('data-tone', 'muted'),
+		)
+		expect(row().querySelector('.thread-row-snippet')).toHaveTextContent('Muted')
+		expect(
+			JSON.parse(window.localStorage.getItem('ownmail:user-preferences:v1') ?? '{}').mutedThreadsByAccount,
+		).toEqual({ 'ada@ownmail.com': ['tokens'] })
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Unmute' }))
+		await waitFor(() => expect(row().querySelector('.thread-row-sender')).not.toHaveAttribute('data-tone'))
+	})
+
+	it('sends your scheduled message now or cancels it into the composer from its row menu', async () => {
+		const later = nowSeconds + DAY
+		const scheduled = thread({
+			id: 'offsite',
+			subject: 'Re: Q3 offsite agenda',
+			latest_message_received_date: nowSeconds - 3600,
+			latest_draft_or_message: {
+				id: 'msg-offsite',
+				thread_id: 'offsite',
+				from: [{ email: 'ada@ownmail.com' }],
+				to: [{ name: 'Grace Hopper', email: 'grace@example.com' }],
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Thanks for pulling this together.',
+				send_at: later,
+				schedule_id: 'sched-1',
+			},
+		} as Partial<Thread> & { id: string })
+		const client = new QueryClient()
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		sendScheduledNow
+			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite', message: { id: 'sent' } })
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'msg-offsite',
+				draftId: 'd-unsent',
+				error: 'Couldn’t send. Saved as a draft.',
+			})
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'msg-offsite',
+				message: { id: 'sent' },
+				warning: 'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			})
+		cancelScheduledSend
+			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite', draftId: 'd-cancelled' })
+			.mockRejectedValueOnce(new Error('x'))
+		render(
+			<QueryClientProvider client={client}>
+				<MailFolderRouteScreen
+					threads={[scheduled, ...threads]}
+					drafts={[]}
+					folders={[]}
+					folderId="inbox"
+					nextCursor={undefined}
+				/>
+			</QueryClientProvider>,
+		)
+		const row = () =>
+			screen
+				.getByRole('link', { name: /Open Re: Q3 offsite agenda/ })
+				.closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		await waitFor(() => expect(sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-offsite' } }))
+		await waitFor(() => expect(invalidate).toHaveBeenCalled())
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
+		// The cancelled message opens on the draft that keeps all of it.
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
+		)
+		// A send the provider refused stays a draft: said on the row, and opened.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		expect(await within(row()).findByText('Couldn’t send. Saved as a draft.')).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'd-unsent' })
+		// A cancel that fails is said on the row.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
+		expect(await within(row()).findByText('Action failed')).toBeInTheDocument()
+		// A send that went but left its safety copy in Drafts says so, and opens nothing.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		expect(
+			await within(row()).findByText(
+				'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			),
+		).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
+
+		// A row that sends nothing later offers neither.
+		const tokens = screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement
+		fireEvent.contextMenu(tokens, { clientX: 10, clientY: 10 })
+		await screen.findByRole('menuitem', { name: 'Mute' })
+		expect(screen.queryByRole('menuitem', { name: 'Send now' })).toBeNull()
+	})
+
+	it('sends a scheduled message from a list outside a query client too', async () => {
+		const scheduled = thread({
+			id: 'solo',
+			subject: 'Solo schedule',
+			latest_message_received_date: nowSeconds - 60,
+			latest_draft_or_message: {
+				id: 'msg-solo',
+				from: [{ email: 'ada@ownmail.com' }],
+				to: [{ email: 'grace@example.com' }],
+				body: 'Later',
+				send_at: nowSeconds + DAY,
+			},
+		} as Partial<Thread> & { id: string })
+		sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-solo' })
+		renderInbox({ threads: [scheduled] })
+		fireEvent.contextMenu(
+			screen.getByRole('link', { name: /Open Solo schedule/ }).closest('[data-nav-row]') as HTMLElement,
+			{
+				clientX: 10,
+				clientY: 10,
+			},
+		)
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		await waitFor(() => expect(sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-solo' } }))
 	})
 })

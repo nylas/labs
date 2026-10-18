@@ -22,16 +22,28 @@ vi.mock('@tanstack/react-router', () => ({
 const getThreadMessages = vi.fn()
 const updateThreadState = vi.fn()
 const markThreadRead = vi.fn()
+const markMessagesRead = vi.fn()
 const getThreads = vi.fn()
+const sideThreadSearch = vi.fn(async (_input: unknown) => ({ threads: [] }))
+const headerFacts = vi.fn()
+const deleteDraft = vi.fn()
+const sendScheduledNow = vi.fn()
+const cancelScheduledSend = vi.fn()
 // The Conversation view looks up bulk-mail headers on demand; the route tests never need a real lookup.
 vi.mock('#features/mail/server/mail-functions', () => ({
 	getThreadListUnsubscribe: () => Promise.resolve({ messageIds: [] }),
 }))
 vi.mock('#server/fns', () => ({
 	getMailboxInfo: async () => ({ email: 'ada@ownmail.com', appName: 'OwnMail' }),
-	getThreads: (input: any) => getThreads(input),
+	// The reader's side-thread lookup searches by subject; the list's pages are what these tests drive.
+	getThreads: (input: any) => (input?.data?.q !== undefined ? sideThreadSearch(input) : getThreads(input)),
 	getThreadMessages: (input: any) => getThreadMessages(input),
+	getThreadHeaderFacts: (input: any) => headerFacts(input),
+	deleteDraft: (input: any) => deleteDraft(input),
+	sendScheduledNow: (input: any) => sendScheduledNow(input),
+	cancelScheduledSend: (input: any) => cancelScheduledSend(input),
 	markThreadRead: (input: any) => markThreadRead(input),
+	markMessagesRead: (input: any) => markMessagesRead(input),
 	updateThreadState: (input: any) => updateThreadState(input),
 }))
 
@@ -51,6 +63,8 @@ vi.mock('#features/mail/components/ComposeProvider', () => ({ useCompose: () => 
 afterEach(cleanup)
 beforeEach(() => {
 	vi.clearAllMocks()
+	headerFacts.mockResolvedValue({ byMessage: {} })
+	deleteDraft.mockResolvedValue({})
 	updateThreadState.mockImplementation(async ({ data }: any) => ({
 		thread: {
 			id: data.threadId,
@@ -66,6 +80,13 @@ beforeEach(() => {
 })
 
 // --- data builders -------------------------------------------------------
+
+/** The desktop toolbar: the phone's top bar has its own Archive and Back, and jsdom shows both bars. */
+const desktopBar = () => within(document.querySelector('.reader-toolbar') as HTMLElement)
+
+/** A file chip as read aloud in order: its name, then its size and version line. */
+const chipText = (chip: Element) =>
+	[...chip.querySelectorAll('.flex-col > span')].map((part) => part.textContent).join(' · ')
 
 function richMessages(): any[] {
 	return [
@@ -194,23 +215,15 @@ describe('thread header', () => {
 		}
 	})
 
-	it('keeps sender and attachment surfaces distinct from the conversation ground', () => {
+	it('mounts the shared avatar on every row and a chip for every file of the open message', () => {
 		renderThread()
-		const avatars = document.querySelectorAll('[data-slot="sender-avatar"]')
-		const attachmentLinks = document.querySelectorAll('[data-slot="thread-attachment"]')
-
-		expect(avatars).toHaveLength(richMessages().length)
-		for (const avatar of avatars) {
-			expect(avatar).toHaveClass('bg-muted')
-			expect(avatar).not.toHaveClass('bg-background')
-		}
-		// Only the expanded message owns download links; the header is count-only,
-		// so aggregate and per-message surfaces never duplicate a download.
-		expect(attachmentLinks).toHaveLength(3)
-		for (const link of attachmentLinks) {
-			expect(link).toHaveClass('bg-card', 'hover:bg-accent', 'dark:bg-muted/40', 'dark:hover:bg-muted')
-			expect(link).not.toHaveClass('bg-muted/40', 'hover:bg-muted')
-		}
+		// Two read messages are one-line rows, each led by a 28px avatar.
+		const rows = document.querySelectorAll('[data-slot="message-expand"]')
+		expect(rows).toHaveLength(2)
+		for (const row of rows) expect(row.querySelector('[data-slot="avatar"]')).toHaveClass('size-7')
+		// Only the open message owns its file chips; the header counts files without linking them.
+		const chips = [...document.querySelectorAll('[data-slot="attachment-chip"]')].map(chipText)
+		expect(chips).toEqual(['attachment · 2 KB', 'big.zip · 3.0 MB', 'nosize.dat'])
 	})
 
 	it('renders the subject and its thread labels', () => {
@@ -220,7 +233,7 @@ describe('thread header', () => {
 		expect(screen.getByText('Work')).toBeInTheDocument()
 		// The subject is in the scroll flow; the toolbar is the only pinned row.
 		const header = heading.closest('header') as HTMLElement
-		expect(header).toHaveClass('bg-background')
+		expect(header.closest('[data-slot="thread-conversation"]')).toHaveClass('bg-background')
 		expect(header.className).not.toMatch(/sticky|top-0/)
 		const viewport = screen.getByRole('region', { name: 'Thread conversation' })
 		expect(viewport).toContainElement(header)
@@ -237,35 +250,35 @@ describe('thread header', () => {
 		expect(viewport).toHaveClass('under-pinned-bar', 'under-mobile-bar')
 	})
 
-	it('falls back to "(no subject)" and shows no labels for an empty thread', () => {
+	it('says "No subject" and shows no labels for an empty thread', () => {
 		renderThread(
 			loaderData({
 				thread: { id: 't1', subject: '', starred: false, folders: [] },
 				messages: [],
 			}),
 		)
-		expect(screen.getByRole('heading', { name: '(no subject)' })).toBeInTheDocument()
+		// "(no subject)" tells nobody anything; with no first line to stand in, it says so plainly.
+		expect(screen.getByRole('heading', { level: 1, name: 'No subject' })).toBeInTheDocument()
 		expect(screen.queryByText('Work')).not.toBeInTheDocument()
 	})
 
-	it('lists every non-inline attachment across the thread with human-readable sizes', () => {
+	it('counts the files across the thread and shows each with its message, with human-readable sizes', () => {
 		renderThread()
-		// a1 lives on collapsed m1 and is intentionally absent until that message is
-		// expanded. The count-only thread summary does not duplicate attachment links.
-		expect(screen.queryByText('doc.pdf')).toBeNull()
-		expect(screen.getByText('big.zip')).toBeInTheDocument()
-		expect(screen.getByText('nosize.dat')).toBeInTheDocument()
-		// inline attachment is excluded
-		expect(screen.queryByText('sig.png')).not.toBeInTheDocument()
-		// The expanded latest message covers KB / MB formatting without duplicates.
-		expect(screen.getByText('· 2 KB')).toBeInTheDocument()
-		expect(screen.getByText('· 3.0 MB')).toBeInTheDocument()
+		// Inline images are not files; the others count once each.
+		expect(screen.getByRole('button', { name: '4 files' })).toHaveAttribute('aria-expanded', 'false')
+		// a1 lives on a read message and is shown once that message opens.
+		expect(screen.queryByText(/doc\.pdf/)).toBeNull()
+		expect([...document.querySelectorAll('[data-slot="attachment-chip"]')].map(chipText)).toContain(
+			'big.zip · 3.0 MB',
+		)
+		expect(screen.queryByText(/sig\.png/)).not.toBeInTheDocument()
 
-		fireEvent.click(screen.getByRole('button', { name: 'Expand message from Alice' }))
-		expect(screen.getByText('· 500 B')).toBeInTheDocument()
-		// Once its message is expanded, the attachment link points at that parent message.
-		const link = screen.getByText('doc.pdf').closest('a') as HTMLAnchorElement
-		expect(link.getAttribute('href')).toBe('/attachments/a1?message_id=m1')
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		fireEvent.click(within(stream).getByRole('button', { name: /Alice/ }))
+		expect([...document.querySelectorAll('[data-slot="attachment-chip"]')].map(chipText)).toContain(
+			'doc.pdf · 500 B',
+		)
+		expect(screen.getByRole('region', { name: 'Attachments from Alice' })).toBeInTheDocument()
 	})
 })
 
@@ -286,7 +299,7 @@ describe('message list', () => {
 		expect(nextViewport.scrollTop).toBe(0)
 	})
 
-	it('offers a separate raw email download for each individual message', () => {
+	it('offers the raw email of the latest message, its id escaped', async () => {
 		renderThread(
 			loaderData({
 				messages: [
@@ -298,50 +311,53 @@ describe('message list', () => {
 				],
 			}),
 		)
-		// The download sits behind the message's one overflow button.
+		// Each message's own download sits in its header's right-click menu (the
+		// header's); the More menu downloads the latest one, its id escaped.
 		expect(screen.queryByRole('menuitem', { name: 'Download raw email' })).not.toBeInTheDocument()
-		fireEvent.click(screen.getByRole('button', { name: 'Actions for message from Alice' }))
-		const link = screen.getByRole('menuitem', { name: 'Download raw email' })
+		fireEvent.click(screen.getByRole('button', { name: 'More' }))
+		const link = await screen.findByRole('menuitem', { name: 'Download raw email' })
 
 		expect(link).toHaveAttribute('href', '/messages/msg%2F%231/download')
 		expect(link).toHaveAttribute('download')
 		expect(link.closest('button')).toBeNull()
-		expect(link.parentElement?.querySelector('button')).toHaveAttribute('aria-expanded', 'true')
 	})
 
-	it('opens the last message and collapses earlier ones, showing previews and senders', () => {
+	it('opens the last message and keeps earlier ones on one line, with previews and senders', () => {
 		renderThread()
 		// senders resolved from name, email, and the unknown fallback
 		expect(screen.getByText('Alice')).toBeInTheDocument()
-		expect(screen.getAllByText('carol@x.com').length).toBeGreaterThan(0)
-		expect(screen.getByText('(unknown sender)')).toBeInTheDocument()
-		// last message expanded → recipient line and HTML body iframe present
-		expect(screen.getByText('to me')).toBeInTheDocument()
+		expect(screen.getByText('Unknown sender')).toBeInTheDocument()
+		// last message open → its header (here a stand-in) and HTML body are present
+		expect(screen.getByRole('heading', { level: 2, name: 'carol@x.com' })).toBeInTheDocument()
 		expect(screen.getByTitle('Email content m2')).toBeInTheDocument()
-		// collapsed earlier message shows its preview
+		// the read message above shows its preview
 		expect(screen.getByText('first body line')).toBeInTheDocument()
 	})
 
-	it('expands and collapses every message from the thread overview controls', async () => {
+	it('expands and collapses every message from the More menu', async () => {
 		const user = userEvent.setup()
 		renderThread()
 		const states = () =>
 			Array.from(document.querySelectorAll('[data-slot="thread-message"]'), (message) =>
-				message.getAttribute('data-state'),
+				message.getAttribute('aria-label'),
 			)
 
-		expect(states()).toEqual(['collapsed', 'collapsed', 'open'])
-		await user.click(screen.getByRole('button', { name: 'Expand all 3 messages' }))
-		expect(states()).toEqual(['open', 'open', 'open'])
-		expect(screen.getByRole('button', { name: 'Expand all 3 messages' })).toBeDisabled()
+		expect(states()).toEqual(['Message from carol@x.com'])
+		await user.click(screen.getByRole('button', { name: 'More' }))
+		await user.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
+		expect(states()).toHaveLength(3)
 
-		await user.click(screen.getByRole('button', { name: 'Collapse all 3 messages' }))
-		expect(states()).toEqual(['collapsed', 'collapsed', 'collapsed'])
-		expect(screen.getByRole('button', { name: 'Collapse all 3 messages' })).toBeDisabled()
+		await user.click(screen.getByRole('button', { name: 'More' }))
+		expect(screen.getByRole('menuitem', { name: 'Expand all 3 messages' })).toBeDisabled()
+		await user.click(screen.getByRole('menuitem', { name: 'Collapse all 3 messages' }))
+		expect(states()).toEqual([])
 	})
 
-	it('discloses complete available addressing and timestamp details', async () => {
-		const user = userEvent.setup()
+	it('looks up the header facts once and hands each message header its own', async () => {
+		const facts = {
+			byMessage: { 'm-details': { verified: true, authFailed: false, listUnsubscribe: false } },
+		}
+		headerFacts.mockResolvedValue(facts)
 		renderThread(
 			loaderData({
 				messages: [
@@ -349,83 +365,21 @@ describe('message list', () => {
 						id: 'm-details',
 						from: [{ name: 'Alice', email: 'alice@x.com' }],
 						to: [{ name: 'Bob', email: 'bob@x.com' }],
-						cc: [{ email: 'cc@x.com' }],
-						bcc: [{ email: 'bcc@x.com' }],
-						reply_to: [{ name: 'Replies', email: 'reply@x.com' }],
 						date: 1_700_000_000,
 						body: 'Detailed message',
 					},
 				],
 			}),
 		)
-		const trigger = screen.getByRole('button', { name: /Show message details/ })
-		expect(trigger).toHaveTextContent('to Bob')
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('heading', { name: 'Message details' })).not.toBeInTheDocument()
-
-		await user.click(trigger)
-		expect(trigger).toHaveAttribute('aria-expanded', 'true')
-		const heading = screen.getByRole('heading', { name: 'Message details' })
-		const panel = heading.closest('section')
-		// In the flow on a phone, so flat there; it floats, as glass, from `sm` up.
-		expect(panel).toHaveClass('sm:absolute', 'sm:top-full', 'glass-panel', 'glass-panel-from-sm')
-		expect(screen.getByText('Alice <alice@x.com>')).toBeInTheDocument()
-		expect(screen.getByText('Bob <bob@x.com>')).toBeInTheDocument()
-		expect(screen.getByText('cc@x.com')).toBeInTheDocument()
-		expect(screen.getByText('bcc@x.com')).toBeInTheDocument()
-		expect(screen.getByText('Replies <reply@x.com>')).toBeInTheDocument()
-		expect(panel?.querySelector('time')).toHaveAttribute('datetime', '2023-11-14T22:13:20.000Z')
-
-		await user.keyboard('x')
-		expect(trigger).toHaveAttribute('aria-expanded', 'true')
-		await user.click(screen.getByText('Alice <alice@x.com>'))
-		expect(trigger).toHaveAttribute('aria-expanded', 'true')
-		fireEvent.focusIn(panel as HTMLElement)
-		expect(trigger).toHaveAttribute('aria-expanded', 'true')
-		fireEvent.pointerDown(panel as HTMLElement)
-		fireEvent.pointerUp(panel as HTMLElement)
-		screen.getByLabelText('Thread conversation').focus()
-		expect(trigger).toHaveAttribute('aria-expanded', 'true')
-		await new Promise((resolve) => setTimeout(resolve, 0))
-		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-
-		await user.click(trigger)
-		const reopenedPanel = screen.getByRole('heading', { name: 'Message details' }).closest('section')
-		fireEvent.pointerDown(reopenedPanel as HTMLElement)
-		act(() => {
-			document.dispatchEvent(new Event('pointerup', { bubbles: true }))
-			document.dispatchEvent(new Event('pointercancel', { bubbles: true }))
-		})
-		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-
-		await user.click(trigger)
-		await user.click(document.body)
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-
-		await user.click(trigger)
-		act(() => {
-			document.dispatchEvent(new Event('pointerup', { bubbles: true }))
-			document.dispatchEvent(new KeyboardEvent('keydown', { bubbles: true, key: 'Escape' }))
-		})
-		expect(trigger).toHaveFocus()
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-		expect(screen.queryByRole('heading', { name: 'Message details' })).not.toBeInTheDocument()
-
-		fireEvent.click(trigger)
-		fireEvent.pointerDown(trigger)
-		fireEvent.pointerUp(trigger)
-		fireEvent.click(trigger)
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-		fireEvent.click(trigger)
-		fireEvent.focus(screen.getByRole('button', { name: 'Actions for message from Alice' }))
-		expect(trigger).toHaveAttribute('aria-expanded', 'false')
-		expect(navigate).not.toHaveBeenCalled()
+		// The header's details say the sender was verified, from that message's own facts.
+		await waitFor(() => expect(headerFacts).toHaveBeenCalled())
+		fireEvent.click(document.querySelector('[data-slot="recipient-summary"]') as HTMLElement)
+		expect(await screen.findByText('Verified sender')).toBeInTheDocument()
+		expect(headerFacts).toHaveBeenCalledExactlyOnceWith({ data: { threadId: 't1' } })
 	})
 
-	it('shows addressing details without inventing a date when the provider omits it', async () => {
-		const user = userEvent.setup()
+	it('reads the thread when the lookup fails, but says the checks could not be run and keeps links disabled', async () => {
+		headerFacts.mockRejectedValue(new Error('provider down'))
 		renderThread(
 			loaderData({
 				messages: [
@@ -438,12 +392,41 @@ describe('message list', () => {
 				],
 			}),
 		)
+		await waitFor(() => expect(headerFacts).toHaveBeenCalled())
+		expect(screen.getByText('Undated message')).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="message-header"]')).not.toHaveAttribute('data-verified')
+		expect(
+			await screen.findByText('Sender checks couldn’t be run for this message. Links are disabled.'),
+		).toBeInTheDocument()
+		expect(document.querySelector('[data-slot="expanded-message-content"]')).toHaveAttribute(
+			'data-links-disabled',
+			'true',
+		)
+	})
 
-		await user.click(screen.getByRole('button', { name: /Show message details/ }))
-		const panel = screen.getByRole('heading', { name: 'Message details' }).closest('section')
-		const labels = Array.from(panel?.querySelectorAll('dt') ?? [], (node) => node.textContent)
-		expect(labels).toEqual(['From', 'To'])
-		expect(panel?.querySelector('time')).toBeNull()
+	it('keeps links disabled until the sender checks answer, kept under the newest message of the thread', async () => {
+		let answer: (facts: unknown) => void = () => {}
+		headerFacts.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+		const alice = { name: 'Alice', email: 'alice@x.com' }
+		const first = {
+			id: 'm-link',
+			from: [alice],
+			to: [{ email: 'me@x.com' }],
+			date: 1_700_000_000,
+			body: 'See this',
+		}
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		renderThread(loaderData({ messages: [first] }), {}, undefined, queryClient)
+		const content = () => document.querySelector('[data-slot="expanded-message-content"]')
+		expect(content()).toHaveAttribute('data-links-disabled', 'true')
+		expect(document.querySelector('[data-slot="message-notices"]')).toBeNull()
+
+		await act(async () =>
+			answer({ byMessage: { 'm-link': { verified: true, authFailed: false, listUnsubscribe: false } } }),
+		)
+		await waitFor(() => expect(content()).not.toHaveAttribute('data-links-disabled'))
+		expect(headerFacts).toHaveBeenCalledTimes(1)
+		expect(queryClient.getQueryData(mailKeys.threadHeaderFacts('t1', 'm-link'))).toBeDefined()
 	})
 
 	it('omits the details disclosure when a provider message has no metadata', () => {
@@ -457,61 +440,78 @@ describe('message list', () => {
 		expect(screen.getByText('Body without addressing metadata')).toBeInTheDocument()
 	})
 
-	it('lets expanded message content reclaim the avatar gutter', () => {
+	it("starts an open message's prose under the sender's name, 12px beneath its header", () => {
 		renderThread()
 		const content = document.querySelector('[data-slot="expanded-message-content"]')
 
-		expect(content).toHaveClass('w-full', 'min-w-0')
-		expect(content).not.toHaveClass('pl-12')
-		// The body starts directly under the 40px header row, with no extra gap above it.
-		expect(content?.className).not.toMatch(/\bmt-/)
+		expect(content).toHaveClass('reader-message-content')
+		// The prose column is inset past the 32px avatar; the header row above is not.
+		expect(content?.querySelector('[data-inset="true"]')).not.toBeNull()
+		expect(document.querySelector('[data-slot="message-header"]')?.closest('[data-inset]')).toBeNull()
 	})
 
-	it('toggles a collapsed message open and back, rendering its (empty) body and no attachments', async () => {
+	it('toggles a read message open and back, rendering its (empty) body and no attachments', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const article = screen.getByRole('article', { name: '(unknown sender)' })
-		expect(article).toHaveAttribute('data-state', 'collapsed')
-		await user.click(screen.getByRole('button', { name: 'Expand message from (unknown sender)' }))
-		expect(article).toHaveAttribute('data-state', 'open')
-		// recipient line for the opened message uses its email-only recipient
-		expect(screen.getByText('to noname@x.com')).toBeInTheDocument()
-		// Collapsing goes through the message's overflow menu.
-		await user.click(screen.getByRole('button', { name: 'Actions for message from (unknown sender)' }))
-		await user.click(screen.getByRole('menuitem', { name: 'Collapse message' }))
-		expect(article).toHaveAttribute('data-state', 'collapsed')
+		expect(screen.queryByRole('article', { name: 'Message from Unknown sender' })).toBeNull()
+		const stream = document.querySelector('[data-slot="thread-message-stream"]') as HTMLElement
+		await user.click(within(stream).getByRole('button', { name: /Unknown sender/ }))
+		const article = screen.getByRole('article', { name: 'Message from Unknown sender' })
+		// The header names the opened message's email-only recipient.
+		expect(within(article).getByText('to Noname')).toBeInTheDocument()
+		expect(within(article).queryByRole('region', { name: /^Attachments/ })).toBeNull()
+		// Collapsing goes through the message's header.
+		await user.click(within(article).getByRole('button', { name: 'Collapse message' }))
+		expect(screen.queryByRole('article', { name: 'Message from Unknown sender' })).toBeNull()
 	})
 
 	it('renders attachments inside an opened message, including missing filename and size', () => {
 		renderThread()
 		// m2 is open by default; its attachments render inside the message block too
-		expect(screen.getAllByText('attachment').length).toBeGreaterThan(0) // a2 has no filename
-		expect(screen.getAllByText('big.zip').length).toBeGreaterThan(0)
+		const files = screen.getByRole('region', { name: 'Attachments from carol@x.com' })
+		const chips = [...files.querySelectorAll('[data-slot="attachment-chip"]')].map(chipText)
+		expect(chips).toContain('attachment · 2 KB') // a2 has no filename
+		expect(chips).toContain('nosize.dat') // and a5 no size
 	})
 
-	it('renders a saved OwnMail draft as its final formatted HTML in the thread reader', () => {
+	it('shows a saved OwnMail draft in its thread as a draft to resume or discard', async () => {
+		const user = userEvent.setup()
 		renderThread(
 			loaderData({
 				thread: { id: 'd1', subject: 'Draft', starred: false, folders: ['custom'] },
 				messages: [
 					{
+						id: 'm1',
+						from: [{ name: 'Alice', email: 'alice@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Hi',
+					},
+					{
 						id: 'd1',
 						folders: ['custom'],
 						from: [{ email: 'me@x.com' }],
+						to: [{ name: 'Alice', email: 'alice@x.com' }],
 						body: markdownToDraftBody('# Heading\n\n**ready** to send'),
 					},
 				],
 				ownmailDraftMessageIds: ['d1'],
 			}),
 		)
-		const root = screen.getByTitle('Email content d1').shadowRoot?.querySelector('.email-root')
-
-		expect(root?.querySelector('h1')?.textContent).toBe('Heading')
-		expect(root?.querySelector('strong')?.textContent).toBe('ready')
-		expect(root?.textContent).not.toContain('# Heading')
-		// A draft has no raw email, so its overflow menu offers only collapse.
-		fireEvent.click(screen.getByRole('button', { name: 'Actions for message from me@x.com' }))
-		expect(screen.getAllByRole('menuitem').map((item) => item.textContent)).toEqual(['Collapse message'])
+		// The draft is not a message anyone has read: it sits under the message it answers.
+		expect(screen.queryByTitle('Email content d1')).toBeNull()
+		const draft = screen.getByRole('region', { name: 'Your draft reply to Alice' })
+		expect(draft.closest('[data-draft-id="d1"]')).not.toBeNull()
+		// The preview is the words of the draft, not its Markdown.
+		expect(draft).toHaveTextContent('Heading')
+		await user.click(screen.getByRole('button', { name: 'Resume' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'd1' })
+		// Replies answer Alice's message, never the unsent draft.
+		await user.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ replyToMessageId: 'm1' }),
+		)
+		await user.click(screen.getByRole('button', { name: 'Discard' }))
+		await waitFor(() => expect(deleteDraft).toHaveBeenCalledWith({ data: { draftId: 'd1' } }))
 	})
 })
 
@@ -521,9 +521,12 @@ describe('toolbar actions', () => {
 	it('keeps mobile and tablet toolbar actions touch-friendly', () => {
 		renderThread()
 
-		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
-		// One height for the whole row: 36px with a fine pointer and 44px on narrow and
-		// touch screens. Every control is the shared icon button except Reply, the one
+		expect(desktopBar().getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
+		// Board 01 draws the row as a named toolbar.
+		expect(document.querySelector('.reader-toolbar')).toHaveAttribute('role', 'toolbar')
+		expect(document.querySelector('.reader-toolbar')).toHaveAttribute('aria-label', 'Thread actions')
+		// One height for the whole row: 32px with a fine pointer and 44px on narrow and
+		// touch screens. Every control is an icon button except Reply all, the one
 		// labelled action in the respond group (design.md "Reading").
 		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
 		const buttons = [...toolbar.querySelectorAll('button')]
@@ -536,46 +539,66 @@ describe('toolbar actions', () => {
 			'Messages view',
 			'Conversation view',
 			'Thread display',
-			'Expand all 3 messages',
-			'Collapse all 3 messages',
-			'Reply',
+			'Previous message (k)',
+			'Next message (j)',
 			'Reply all',
+			'Reply',
 			'Forward',
+			'More',
 		])
-		const reply = screen.getByRole('button', { name: 'Reply' })
-		expect(reply).toHaveTextContent('Reply')
-		expect(reply).toHaveClass('h-9', 'max-md:min-h-11', '[@media(any-pointer:coarse)]:min-h-11')
-		for (const button of buttons.filter((button) => button !== reply)) {
-			expect(button).toHaveClass('size-9', 'max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
-			expect(button.className).not.toMatch(/\b(?:xl:)?[hw]-(?:9|11)\b/)
+		const replyAll = screen.getByRole('button', { name: 'Reply all' })
+		expect(replyAll).toHaveTextContent('Reply all')
+		expect(replyAll).toHaveClass(
+			'h-8',
+			'reader-reply-all',
+			'max-md:min-h-11',
+			'[@media(any-pointer:coarse)]:min-h-11',
+		)
+		for (const button of buttons.filter((button) => button !== replyAll)) {
+			expect(button).toHaveClass('max-md:size-11', '[@media(any-pointer:coarse)]:size-11')
 		}
-		// The triage group is divided from the view group.
-		expect(within(toolbar).getByRole('separator')).toHaveAttribute('aria-orientation', 'vertical')
+		for (const name of ['Archive', 'Reply', 'Forward', 'More', 'Previous message (k)']) {
+			expect(desktopBar().getByRole('button', { name })).toHaveClass('size-8')
+		}
+		// Triage, view and position are divided from each other.
+		for (const separator of within(toolbar).getAllByRole('separator')) {
+			expect(separator).toHaveAttribute('aria-orientation', 'vertical')
+		}
+		expect(within(toolbar).getAllByRole('separator')).toHaveLength(2)
+		expect(within(toolbar).getByText('3 of 3')).toHaveClass('reader-stepper-count', 'font-data')
 	})
 
-	it('hosts the thread display actions in the toolbar, ahead of the reply group', async () => {
+	it('hosts the thread display actions in the toolbar, ahead of the reply group, and More at its end', async () => {
 		const user = userEvent.setup()
 		renderThread()
 		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
-		const expandAll = screen.getByRole('button', { name: 'Expand all 3 messages' })
+		const display = screen.getByRole('button', { name: 'Thread display' })
+		const more = screen.getByRole('button', { name: 'More' })
 
 		// The subject row no longer carries these, so it needs no 44px control.
-		expect(toolbar).toContainElement(expandAll)
-		expect(toolbar).toContainElement(screen.getByRole('button', { name: 'Thread display' }))
+		expect(toolbar).toContainElement(display)
+		expect(toolbar).toContainElement(more)
 		expect(
-			screen.getByRole('heading', { name: 'Hello' }).closest('header')?.querySelector('button'),
+			screen
+				.getByRole('heading', { name: 'Hello' })
+				.closest('header')
+				?.querySelector(
+					'[data-slot="thread-actions"], [data-slot="reader-more"], [data-slot="thread-stepper"]',
+				),
 		).toBeNull()
-		const reply = screen.getByRole('button', { name: 'Reply' })
-		expect(expandAll.compareDocumentPosition(reply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+		const replyAll = screen.getByRole('button', { name: 'Reply all' })
+		expect(display.compareDocumentPosition(replyAll) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+		expect(replyAll.compareDocumentPosition(more) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
 
-		await user.click(expandAll)
+		await user.click(more)
+		await user.click(screen.getByRole('menuitem', { name: 'Expand all 3 messages' }))
 		expect(document.querySelectorAll('[data-slot="thread-message"][data-state="open"]')).toHaveLength(3)
 	})
 
 	it('archives the thread and returns to the folder list', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		await user.click(screen.getByRole('button', { name: 'Archive' }))
+		await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({
 				data: { threadId: 't1', folder: 'archive' },
@@ -591,7 +614,7 @@ describe('toolbar actions', () => {
 		it('confirms an archive with an Undo that puts the conversation back where it was', async () => {
 			const user = userEvent.setup()
 			renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', folders: ['inbox', 'work'] } }))
-			await user.click(screen.getByRole('button', { name: 'Archive' }))
+			await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 			expect(await screen.findByText('Archived')).toBeInTheDocument()
 			await user.click(screen.getByRole('button', { name: 'Undo' }))
 			await waitFor(() =>
@@ -616,7 +639,7 @@ describe('toolbar actions', () => {
 				{},
 				{ folderId: 'archive', threadId: 't1' },
 			)
-			await user.click(screen.getByRole('button', { name: 'Return to inbox' }))
+			await user.click(desktopBar().getByRole('button', { name: 'Return to inbox' }))
 			expect(await screen.findByText('Moved to Inbox')).toBeInTheDocument()
 			await user.click(screen.getByRole('button', { name: 'Undo' }))
 			await waitFor(() =>
@@ -627,7 +650,7 @@ describe('toolbar actions', () => {
 		it('confirms without Undo when it cannot know where the conversation came from', async () => {
 			const user = userEvent.setup()
 			renderThread()
-			await user.click(screen.getByRole('button', { name: 'Archive' }))
+			await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 			expect(await screen.findByText('Archived')).toBeInTheDocument()
 			expect(screen.queryByRole('button', { name: 'Undo' })).not.toBeInTheDocument()
 		})
@@ -636,7 +659,7 @@ describe('toolbar actions', () => {
 	it('returns archived threads to the inbox instead of archiving them again', async () => {
 		const user = userEvent.setup()
 		renderThread(loaderData({ thread: { id: 't1', subject: 'Hello', starred: false, folders: ['archive'] } }))
-		await user.click(screen.getByRole('button', { name: 'Return to inbox' }))
+		await user.click(desktopBar().getByRole('button', { name: 'Return to inbox' }))
 
 		await waitFor(() =>
 			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'inbox' } }),
@@ -690,7 +713,7 @@ describe('toolbar actions', () => {
 		expect(star).toHaveAttribute('aria-busy', 'true')
 		expect(star.querySelector('.animate-spin')).not.toBeNull()
 		for (const label of ['Archive', 'Delete', 'Mark unread']) {
-			const button = screen.getByRole('button', { name: label })
+			const button = desktopBar().getByRole('button', { name: label })
 			expect(button.querySelector('.animate-spin')).toBeNull()
 		}
 
@@ -754,7 +777,7 @@ describe('toolbar actions', () => {
 	it('carries the baseFolderId through leave navigation as a real URL', async () => {
 		const user = userEvent.setup()
 		renderThread(loaderData(), { baseFolderId: 'starred' })
-		await user.click(screen.getByRole('button', { name: 'Archive' }))
+		await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() => expect(navigate).toHaveBeenCalled())
 		expect(navigate).toHaveBeenCalledWith(
 			expect.objectContaining({
@@ -847,7 +870,7 @@ describe('action errors', () => {
 		const user = userEvent.setup()
 		updateThreadState.mockRejectedValueOnce(new Error('boom'))
 		renderThread()
-		await user.click(screen.getByRole('button', { name: 'Archive' }))
+		await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		expect(await screen.findByText('Action failed')).toBeInTheDocument()
 		// An error sits in the flow below the pinned bar, never hidden under it; the
 		// conversation then starts beneath the error instead of beneath the bar.
@@ -860,7 +883,7 @@ describe('action errors', () => {
 		const user = userEvent.setup()
 		updateThreadState.mockRejectedValueOnce('weird')
 		renderThread()
-		await user.click(screen.getByRole('button', { name: 'Archive' }))
+		await user.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		expect(await screen.findByText('Action failed')).toBeInTheDocument()
 		// An error sits in the flow below the pinned bar, never hidden under it; the
 		// conversation then starts beneath the error instead of beneath the bar.
@@ -938,13 +961,26 @@ describe('compose navigation', () => {
 		expect(call?.[0].threadId).toBe('t1')
 	})
 
-	it('opens a reply from the inline "Write a reply" field after the last message', async () => {
+	it('opens a reply to everyone from the reply card under the last message, or to the sender only', async () => {
 		const user = userEvent.setup()
 		renderThread(composeData())
-		const inlineReply = screen.getByRole('button', { name: /Write a reply/ })
-		expect(inlineReply.closest('[data-navigation-content]')).toBeNull()
-		await user.click(inlineReply)
-		expect(composeApi.openCompose).toHaveBeenCalledWith(expect.objectContaining({ replyToMessageId: 'mL' }))
+		const card = screen.getByRole('region', { name: 'Reply' })
+		expect(card.closest('[data-navigation-content]')).toBeNull()
+		// Reply all reaches the Reply-To address, the other recipient and Cc, never the owner.
+		expect(card).toHaveTextContent('Reply all to Reply, Other, Cc')
+		await user.click(within(card).getByRole('button', { name: /Write a reply/ }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({
+				replyToMessageId: 'mL',
+				to: 'reply@x.com, sender@x.com, other@x.com, cc@x.com',
+			}),
+		)
+		await user.click(within(card).getByRole('button', { name: 'Send' }))
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
+		await user.click(within(card).getByRole('button', { name: 'Reply only to Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ replyToMessageId: 'mL', to: 'reply@x.com' }),
+		)
 	})
 
 	it('replies from the Conversation view through the same compose flow, to everyone by default', async () => {
@@ -973,41 +1009,29 @@ describe('compose navigation', () => {
 
 	it('offers complete mobile response actions with the same compose payloads', async () => {
 		const user = userEvent.setup()
-		render(
-			<div
-				id={MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID}
-				role="toolbar"
-				aria-label="Thread actions"
-				className="mobile-thread-tabs"
-			/>,
-		)
+		// The phone's reply bar fills the thread slot of the mobile tab bar.
+		const slot = document.createElement('div')
+		slot.id = MOBILE_BOTTOM_BAR_THREAD_ACTIONS_ID
+		document.body.append(slot)
 		renderThread(composeData())
-		const toolbar = screen.getByRole('toolbar', { name: 'Thread actions' })
-		const reply = screen.getByRole('button', { name: 'Reply to thread' })
-		const replyAll = screen.getByRole('button', { name: 'Reply all to thread' })
-		const forward = screen.getByRole('button', { name: 'Forward thread' })
-
-		expect(toolbar).toHaveClass('mobile-thread-tabs')
-		for (const action of [reply, replyAll, forward]) expect(action).toHaveClass('min-h-11')
-		for (const action of [reply, replyAll, forward]) expect(action).toHaveTextContent('')
-		const desktopReply = screen.getByRole('button', { name: /Write a reply/ })
-		// Desktop only: mobile keeps the bottom bar as its single reply surface.
-		expect(desktopReply).toHaveClass('hidden', 'md:flex')
-		// The field is not pinned: it scrolls with the conversation, after the last
-		// message, on the same column (and so the same gutters) as the messages.
+		const bar = within(slot)
+		const reply = bar.getByRole('button', { name: 'Reply' })
+		const replyAll = bar.getByRole('button', { name: 'Reply all' })
+		const forward = bar.getByRole('button', { name: 'Forward' })
+		// Reply all is the one labelled button (board 03).
+		expect(replyAll).toHaveTextContent('Reply all')
+		// The phone's reply bar and top bar replace the desktop toolbar and reply card below `md`.
+		expect(screen.getByTestId('thread-reader').firstElementChild).toHaveClass('max-md:hidden')
+		const card = document.querySelector('[data-slot="inline-reply-dock"]') as HTMLElement
+		expect(card).toHaveClass('reader-reply-dock')
+		// The card sits in the conversation, after the last message, on the same column.
 		const viewport = screen.getByRole('region', { name: 'Thread conversation' })
-		expect(viewport).toContainElement(desktopReply)
+		expect(viewport).toContainElement(card)
 		const lastMessage = [...document.querySelectorAll('[data-slot="thread-message"]')].at(-1) as Element
-		expect(lastMessage.compareDocumentPosition(desktopReply) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
-		expect(desktopReply.closest('[data-slot="thread-column"]')).not.toBeNull()
-		expect(desktopReply.className).not.toMatch(/\bmx-/)
-		const reader = screen.getByTestId('thread-reader')
-		expect(reader.firstElementChild).toHaveClass('h-(--toolbar-height)')
-		// Nothing but the toolbar and the scrolling conversation remains in the pane.
-		expect([...reader.children].map((child) => child.getAttribute('data-slot'))).toEqual([
-			'toolbar',
-			'scroll-area',
-		])
+		expect(lastMessage.compareDocumentPosition(card) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+		expect(card.querySelector('[data-slot="thread-column"]')).not.toBeNull()
+		const topBar = document.querySelector('[data-slot="mobile-thread-top-bar"]') as HTMLElement
+		expect(topBar).toHaveTextContent('Chat1 message · 2 people')
 
 		await user.click(reply)
 		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
@@ -1029,6 +1053,14 @@ describe('compose navigation', () => {
 			expect.objectContaining({ threadId: 't1', to: '' }),
 		)
 		expect(composeApi.openCompose.mock.calls.at(-1)?.[0].body).toContain('Forwarded message')
+
+		// The phone top bar archives and goes back like the toolbar.
+		await user.click(within(topBar).getByRole('button', { name: 'Back to Inbox' }))
+		await user.click(within(topBar).getByRole('button', { name: 'Archive' }))
+		await waitFor(() =>
+			expect(updateThreadState).toHaveBeenCalledWith({ data: { threadId: 't1', folder: 'archive' } }),
+		)
+		slot.remove()
 	})
 
 	it('hides the reply affordances entirely when the thread has no messages', () => {
@@ -1121,20 +1153,22 @@ describe('keyboard shortcuts', () => {
 		expect(navigate).not.toHaveBeenCalled()
 	})
 
-	it('moves focus to the inline reply field on "r", which then opens the reply', async () => {
+	it('moves focus to the reply card\'s plain reply on "r", which then opens the reply', async () => {
 		const user = userEvent.setup()
 		renderThread()
-		const field = screen.getByRole('button', { name: /Write a reply/ })
+		const replyOnly = screen.getByRole('button', { name: /^Reply only to/ })
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
-		// Reading is not interrupted: the shortcut reaches the field, it does not navigate.
-		expect(field).toHaveFocus()
+		// Reading is not interrupted: the shortcut reaches the card, it does not navigate.
+		expect(replyOnly).toHaveFocus()
 		expect(navigate).not.toHaveBeenCalled()
 
+		// `r` means Reply, as on a phone: a reply to the sender only, not Reply all.
 		await user.keyboard('{Enter}')
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(1)
 		expect(composeApi.openCompose).toHaveBeenCalledWith(
-			expect.objectContaining({ threadId: 't1', replyToMessageId: 'm2' }),
+			expect.objectContaining({ kind: 'reply', threadId: 't1', replyToMessageId: 'm2', to: 'carol@x.com' }),
 		)
 	})
 
@@ -1142,16 +1176,78 @@ describe('keyboard shortcuts', () => {
 		renderThread()
 		// On mobile the field is `display: none` and cannot take focus; jsdom applies
 		// no stylesheet, so stand in for that by making focus a no-op.
-		vi.spyOn(screen.getByRole('button', { name: /Write a reply/ }), 'focus').mockImplementation(() => {})
+		vi.spyOn(screen.getByRole('button', { name: /^Reply only to/ }), 'focus').mockImplementation(() => {})
 		await act(async () => {
 			fireEvent.keyDown(document.body, { key: 'r' })
 		})
 		expect(composeApi.openCompose).toHaveBeenCalledWith(
 			expect.objectContaining({
+				kind: 'reply',
 				threadId: 't1',
 				replyToMessageId: 'm2',
 				to: 'carol@x.com',
 			}),
+		)
+	})
+
+	it('replies to the first other person when your own message is the latest, and to no one when there is none', async () => {
+		const own = (to: Array<{ name?: string; email: string }>) =>
+			loaderData({
+				messages: [
+					{
+						id: 'm1',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Hi',
+					},
+					{ id: 'm2', from: [{ name: 'Me', email: 'me@x.com' }], to, body: 'Thanks' },
+				],
+			})
+		const { unmount } = renderThread(own([{ email: 'me@x.com' }, { name: 'Carol', email: 'carol@x.com' }]))
+		expect(screen.getByRole('button', { name: 'Reply only to Carol' })).toBeInTheDocument()
+		fireEvent.click(screen.getByRole('button', { name: 'Reply' }))
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm2', to: 'carol@x.com' }),
+		)
+		unmount()
+		// A note to yourself has no one else to reply to: the composer opens unaddressed.
+		renderThread(own([{ email: 'me@x.com' }]))
+		await act(async () => {
+			fireEvent.keyDown(document.body, { key: 'r' })
+		})
+		expect(composeApi.openCompose).toHaveBeenLastCalledWith(
+			expect.objectContaining({ kind: 'reply', replyToMessageId: 'm2', to: '' }),
+		)
+	})
+
+	it('counts on the phone top bar what the stream shows, not messages in Trash', () => {
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'm1',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Hi',
+					},
+					{
+						id: 'm2',
+						from: [{ name: 'Dave', email: 'dave@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Binned',
+						folders: ['trash'],
+					},
+					{
+						id: 'm3',
+						from: [{ name: 'Carol', email: 'carol@x.com' }],
+						to: [{ email: 'me@x.com' }],
+						body: 'Bye',
+					},
+				],
+			}),
+		)
+		expect(document.querySelector('[data-slot="mobile-thread-top-bar"]')).toHaveTextContent(
+			'Hello2 messages · 2 people',
 		)
 	})
 
@@ -1163,7 +1259,7 @@ describe('keyboard shortcuts', () => {
 		document.body.dispatchEvent(event)
 
 		expect(event.defaultPrevented).toBe(true)
-		expect(screen.getByRole('button', { name: /Write a reply/ })).toHaveFocus()
+		expect(screen.getByRole('button', { name: /^Reply only to/ })).toHaveFocus()
 	})
 
 	it('does not open a reply from interactive controls, with modifiers, or while a dialog is open', async () => {
@@ -1305,6 +1401,18 @@ describe('keyboard shortcuts', () => {
 		expect(updateThreadState).not.toHaveBeenCalled()
 	})
 
+	it('leaves the thread open when something else has already handled Escape', async () => {
+		renderThread()
+		// Radix dismisses a dialog or popover by preventing the Escape it closed on.
+		const spent = () => {
+			const onCapture = (event: KeyboardEvent) => event.preventDefault()
+			window.addEventListener('keydown', onCapture, { capture: true, once: true })
+			fireEvent.keyDown(document.body, { key: 'Escape' })
+		}
+		await act(async () => spent())
+		expect(navigate).not.toHaveBeenCalled()
+	})
+
 	it('preserves baseFolderId when closing on Escape (no mask)', async () => {
 		renderThread(loaderData(), { baseFolderId: 'starred' })
 		await act(async () => {
@@ -1382,6 +1490,28 @@ describe('read state on open', () => {
 		expect(markThreadRead).toHaveBeenCalledTimes(1)
 	})
 
+	it('marks only the shown messages of a partly loaded thread read, then the whole thread once it loads', async () => {
+		markMessagesRead.mockResolvedValue({ threadId: 't1', messageIds: ['m3'] })
+		const unreadThread = { id: 't1', subject: 'Hello', unread: true, folders: ['work'] }
+		const shown = richMessages().map((message: any, index: number) =>
+			index === 2 ? { ...message, unread: true } : message,
+		)
+		const partialDetail = loaderData({ thread: unreadThread, messages: shown, failedMessageIds: ['lost'] })
+		getThreadMessages.mockResolvedValue(loaderData({ thread: unreadThread, messages: shown }))
+		renderThread(partialDetail)
+		await waitFor(() =>
+			expect(markMessagesRead).toHaveBeenCalledWith({
+				data: { threadId: 't1', messageIds: [shown[2].id] },
+			}),
+		)
+		expect(markThreadRead).not.toHaveBeenCalled()
+		// Try again loads the rest: now the whole thread is read.
+		const paused = document.querySelector('[data-slot="replies-paused"]') as HTMLElement
+		fireEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(markThreadRead).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+		expect(markMessagesRead).toHaveBeenCalledTimes(1)
+	})
+
 	it('does not broadly invalidate the router when a thread opens', () => {
 		renderThread(loaderData())
 		expect(invalidate).not.toHaveBeenCalled()
@@ -1417,7 +1547,7 @@ describe('triage flow', () => {
 		renderThread(loaderData(), {}, undefined, inboxWith([newest, opened, older]))
 		// Split layouts keep the back control for narrow screens only.
 		expect(screen.getByRole('button', { name: 'Back to list' })).toHaveClass('xl:hidden')
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith({
 				to: '/mail/f/$folderId/t/$threadId',
@@ -1450,7 +1580,7 @@ describe('triage flow', () => {
 				expect(screen.getByRole('button', { name: 'Back to list' })).not.toHaveClass('xl:hidden'),
 			)
 
-			await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+			await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 
 			await waitFor(() =>
 				expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
@@ -1471,7 +1601,7 @@ describe('triage flow', () => {
 			pageParams: [undefined],
 		})
 		renderThread(loaderData(), {}, { folderId: 'starred', threadId: 't1' }, queryClient)
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(
 				expect.objectContaining({ params: { folderId: 'starred', threadId: 't2' } }),
@@ -1482,7 +1612,7 @@ describe('triage flow', () => {
 	it('returns to the list on phones, when nothing is cached, and after "Mark unread"', async () => {
 		splitView(false)
 		const first = renderThread(loaderData(), {}, undefined, inboxWith([opened, older]))
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
 		)
@@ -1491,7 +1621,7 @@ describe('triage flow', () => {
 		splitView(true)
 		navigate.mockClear()
 		const second = renderThread(loaderData())
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(expect.objectContaining({ to: '/mail/f/$folderId' })),
 		)
@@ -1524,7 +1654,7 @@ describe('triage flow', () => {
 		const queryClient = pagedInbox([newest, opened])
 		renderThread(loaderData(), {}, undefined, queryClient)
 
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(
@@ -1548,7 +1678,7 @@ describe('triage flow', () => {
 		const key = mailKeys.threadList({ folderId: 'inbox' })
 		renderThread(loaderData(), {}, undefined, queryClient)
 
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		// The request only starts after the journal captured its snapshot.
 		await waitFor(() => expect(updateThreadState).toHaveBeenCalled())
 		deliverPage({ threads: [nextPageThread] })
@@ -1572,7 +1702,7 @@ describe('triage flow', () => {
 		splitView(true)
 		getThreads.mockRejectedValueOnce(new Error('offline'))
 		const first = renderThread(loaderData(), {}, undefined, pagedInbox([newest, opened]))
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(
 				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't0' } }),
@@ -1605,7 +1735,7 @@ describe('triage flow', () => {
 			return { threads: [nextPageThread] }
 		})
 		renderThread(loaderData(), {}, undefined, queryClient)
-		await userEvent.click(screen.getByRole('button', { name: 'Archive' }))
+		await userEvent.click(desktopBar().getByRole('button', { name: 'Archive' }))
 		await waitFor(() =>
 			expect(navigate).toHaveBeenCalledWith(
 				expect.objectContaining({ params: { folderId: 'inbox', threadId: 't9' } }),
@@ -1660,5 +1790,222 @@ describe('thread detail cache entry without data', () => {
 
 		expect(() => rerenderThread()).not.toThrow()
 		expect(screen.getByRole('heading', { name: 'Hello' })).toBeTruthy()
+	})
+})
+
+describe('what the reader is given beyond the thread', () => {
+	it('knows the named people of the conversations already listed, for the lookalike-sender check', () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false, staleTime: 30_000 } } })
+		queryClient.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [
+				{
+					threads: [
+						{
+							id: 'bank',
+							participants: [
+								{ name: 'Meridian Bank', email: 'Statements@MeridianBank.com' },
+								{ name: 'Me', email: 'me@x.com' },
+								{ email: 'noname@x.com' },
+							],
+						},
+						{ id: 'again', participants: [{ name: 'Meridian', email: 'statements@meridianbank.com' }] },
+						{ id: 'none' },
+					],
+				},
+			],
+			pageParams: [undefined],
+		})
+		// A message from someone using that name on another domain is a lookalike: its links are inert.
+		renderThread(
+			loaderData({
+				messages: [
+					{
+						id: 'm-bank',
+						from: [{ name: 'Meridian Bank', email: 'alerts@meridian-secure.co' }],
+						to: [{ email: 'me@x.com' }],
+						body: '<p>Verify your <a href="https://meridian-secure.co/login">account</a>.</p>',
+					},
+				],
+			}),
+			{},
+			undefined,
+			queryClient,
+		)
+		expect(document.querySelector('[data-slot="expanded-message-content"]')).toHaveAttribute(
+			'data-links-disabled',
+			'true',
+		)
+		expect(screen.getByText(/usually writes from/)).toBeInTheDocument()
+	})
+
+	it('retries the messages that could not load, in place', async () => {
+		getThreadMessages.mockResolvedValue({
+			thread: { id: 't1', subject: 'Hello' },
+			messages: [],
+			mailboxEmail: 'me@x.com',
+		})
+		renderThread(loaderData({ failedMessageIds: ['lost'] }))
+		const notice = screen.getByText('Couldn’t load 1 message. Showing 3 saved on this device.')
+		fireEvent.click(
+			within(notice.closest('[role="note"]') as HTMLElement).getByRole('button', { name: 'Try again' }),
+		)
+		await waitFor(() => expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+	})
+
+	it('keeps reading but holds every reply while part of the thread is missing', async () => {
+		getThreadMessages.mockResolvedValue(loaderData())
+		renderThread(loaderData({ failedMessageIds: ['lost'] }))
+		// The toolbar's respond controls stay in place, unavailable.
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		for (const name of ['Reply all', 'Reply', 'Forward']) {
+			const control = within(toolbar).getByRole('button', { name })
+			expect(control).toBeDisabled()
+			expect(control).toHaveAttribute('title', 'Load the whole conversation to reply (Try again)')
+		}
+		// No reply card, no phone reply bar: the note says why and offers Try again.
+		expect(screen.queryByRole('button', { name: /Write a reply/ })).not.toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).not.toHaveClass(
+			'under-mobile-reply-bar',
+		)
+		const paused = document.querySelector('[data-slot="replies-paused"]') as HTMLElement
+		expect(paused).toHaveTextContent(
+			'Reply, Reply all and Forward are off until the whole conversation loads. The newest message may be missing.',
+		)
+		// `r` answers nothing.
+		fireEvent.keyDown(document.body, { key: 'r' })
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+		// Reading stays: the messages that loaded are there.
+		expect(screen.getAllByRole('article').length).toBeGreaterThan(0)
+		fireEvent.click(within(paused).getByRole('button', { name: 'Try again' }))
+		await waitFor(() => expect(getThreadMessages).toHaveBeenCalledWith({ data: { threadId: 't1' } }))
+	})
+
+	it('says so on the reader when a draft cannot be discarded', async () => {
+		deleteDraft.mockRejectedValue(new Error('nope'))
+		renderThread(
+			loaderData({
+				messages: [
+					...richMessages(),
+					{ id: 'd1', from: [{ email: 'me@x.com' }], to: [{ email: 'alice@x.com' }], body: 'Draft' },
+				],
+				ownmailDraftMessageIds: ['d1'],
+			}),
+		)
+		fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+		expect(await screen.findByText('Could not discard the draft')).toBeInTheDocument()
+	})
+
+	it('sends your scheduled message now or cancels it, and says so when it cannot', async () => {
+		const later = Math.floor(Date.now() / 1000) + 86_400
+		sendScheduledNow
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', message: { id: 'm-sent' } })
+			.mockRejectedValueOnce(new Error('x'))
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'm-out',
+				draftId: 'd-unsent',
+				error: 'Couldn’t send. Saved as a draft.',
+			})
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'm-out',
+				message: { id: 'm-sent' },
+				warning: 'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			})
+		cancelScheduledSend
+			.mockRejectedValueOnce(new Error('x'))
+			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', draftId: 'd-cancelled' })
+		const data = loaderData({
+			messages: [
+				...richMessages(),
+				{
+					id: 'm-out',
+					from: [{ email: 'me@x.com' }],
+					to: [{ name: 'Alice', email: 'alice@x.com' }],
+					subject: 'Re: Hello',
+					body: 'Later',
+					date: 1_700_000_500,
+					send_at: later,
+					schedule_id: 'sched-1',
+				},
+			],
+		})
+		// Sending or cancelling reloads the thread; the provider still holds it in this test.
+		getThreadMessages.mockResolvedValue(data)
+		renderThread(data)
+		// The actions sit on the message's own status line.
+		const status = () => within(document.querySelector('[data-slot="outgoing-status"]') as HTMLElement)
+		fireEvent.click(status().getByText('Send now'))
+		await waitFor(() => expect(sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'm-out' } }))
+		fireEvent.click(status().getByText('Send now'))
+		expect(await screen.findByText('Could not send it now')).toBeInTheDocument()
+		fireEvent.click(status().getByText('Cancel'))
+		expect(await screen.findByText('Could not cancel the scheduled send')).toBeInTheDocument()
+		expect(composeApi.openCompose).not.toHaveBeenCalled()
+		// The cancelled message opens on the draft that now holds all of it.
+		fireEvent.click(status().getByText('Cancel'))
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-cancelled' }),
+		)
+		// A send the provider refused is kept as a draft, said, and opened.
+		fireEvent.click(status().getByText('Send now'))
+		expect(await screen.findByText('Couldn’t send. Saved as a draft.')).toBeInTheDocument()
+		await waitFor(() =>
+			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-unsent' }),
+		)
+		// A send that went but left its safety copy in Drafts says so, and opens nothing.
+		fireEvent.click(status().getByText('Send now'))
+		expect(
+			await screen.findByText(
+				'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			),
+		).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
+	})
+
+	it('names the folder the phone back button returns to, and gives the reply bar its room', () => {
+		renderThread(loaderData(), {}, { folderId: 'sent', threadId: 't1' })
+		const topBar = document.querySelector('[data-slot="mobile-thread-top-bar"]') as HTMLElement
+		expect(within(topBar).getByRole('button', { name: 'Back to Sent' })).toBeInTheDocument()
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).toHaveClass('under-mobile-reply-bar')
+		cleanup()
+		renderThread(loaderData(), {}, { folderId: 'custom-label', threadId: 't1' })
+		const custom = document.querySelector('[data-slot="mobile-thread-top-bar"]') as HTMLElement
+		expect(within(custom).getByRole('button', { name: 'Back to list' })).toBeInTheDocument()
+		cleanup()
+		renderThread(loaderData({ messages: [] }))
+		expect(screen.getByRole('region', { name: 'Thread conversation' })).not.toHaveClass(
+			'under-mobile-reply-bar',
+		)
+	})
+
+	it('keeps the toolbar and a way back when the conversation cannot load, and tries again in place', async () => {
+		const user = userEvent.setup()
+		Route.useParams = vi.fn(() => ({ folderId: 'inbox', threadId: 't1' }))
+		Route.useSearch = vi.fn(() => ({ baseFolderId: 'starred' }))
+		const reset = vi.fn()
+		const ErrorView = Route.options.errorComponent
+		render(<ErrorView error={new Error('down')} reset={reset} info={{ componentStack: '' }} />)
+		const toolbar = screen.getByTestId('thread-reader').firstElementChild as HTMLElement
+		expect(toolbar).toHaveAttribute('data-slot', 'toolbar')
+		// The reader's controls keep their places, unavailable until the conversation loads.
+		for (const name of ['Archive', 'Delete', 'Star', 'Mark unread', 'Reply all']) {
+			expect(within(toolbar).getByRole('button', { name })).toBeDisabled()
+		}
+		await user.click(screen.getByRole('button', { name: 'Try again' }))
+		expect(reset).toHaveBeenCalledTimes(1)
+		await user.click(within(toolbar).getByRole('button', { name: 'Back to list' }))
+		expect(navigate).toHaveBeenCalledWith({
+			to: '/mail/f/$folderId',
+			params: { folderId: 'inbox' },
+			search: { baseFolderId: 'starred' },
+		})
+		Route.useSearch = vi.fn(() => ({}))
+		cleanup()
+		render(<ErrorView error={new Error('down')} reset={reset} info={{ componentStack: '' }} />)
+		await user.click(screen.getByRole('button', { name: 'Back to list' }))
+		expect(navigate).toHaveBeenLastCalledWith({
+			to: '/mail/f/$folderId',
+			params: { folderId: 'inbox' },
+			search: {},
+		})
 	})
 })

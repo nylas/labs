@@ -9,6 +9,7 @@ import {
 	type EmailLayoutStatusDetail,
 	type EmailRemoteImagesDetail,
 	LINK_PREVIEW_EVENT,
+	MIN_EMAIL_SCALE,
 } from '../lib/email-render.js'
 import {
 	anchorHref,
@@ -480,6 +481,25 @@ describe('<ownmail-email> rendering', () => {
 		expect(image.src).toContain('retry=2')
 	})
 
+	it('names a failed image in its declared space, so the layout keeps its place', () => {
+		const token = `${'a'.repeat(20)}.${'b'.repeat(20)}`
+		const el = mount(
+			`<img class="sized" alt="Lisbon" width="560" height="180" src="/email-images/${token}"><img class="half" alt="Porto" width="280" src="/email-images/${token}">`,
+		)
+		el.setAttribute('data-load-remote-images', '')
+		const sized = el.shadowRoot?.querySelector<HTMLImageElement>('.sized') as HTMLImageElement
+		const half = el.shadowRoot?.querySelector<HTMLImageElement>('.half') as HTMLImageElement
+		sized.dispatchEvent(new Event('error'))
+		half.dispatchEvent(new Event('error'))
+		const [first, second] =
+			el.shadowRoot?.querySelectorAll<HTMLElement>('[data-ownmail-image-fallback]') ?? []
+		expect(sized).toHaveAttribute('data-ownmail-image-failed')
+		expect(first?.style.width).toBe('560px')
+		expect(first?.style.height).toBe('180px')
+		expect(second?.style.width).toBe('280px')
+		expect(second?.style.height).toBe('')
+	})
+
 	it('stores html set before connection and renders it on connect', () => {
 		ensureEmailElementDefined()
 		const el = document.createElement(EMAIL_ELEMENT_TAG) as EmailEl
@@ -669,14 +689,40 @@ describe('<ownmail-email> scaling', () => {
 		expect(el).toHaveAttribute('data-email-direction', 'rtl')
 	})
 
-	it('pans readable content that still cannot fit after reflow', () => {
+	it('scales readable content that still cannot fit after reflow, and pans only past the floor', () => {
 		const el = mount('<pre>unbreakable</pre>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		// A little too wide: scaled to fit, as Original would, instead of scrolling sideways.
+		stubSize(content, 'scrollWidth', 400)
+		stubSize(el, 'clientWidth', 360)
+		el.measure()
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('0.9')
+		expect(content.style.width).toBe('400px')
+		expect(el).not.toHaveAttribute('data-email-pan')
+		// Far too wide: scaled to the legibility floor, and the rest pans.
 		stubSize(content, 'scrollWidth', 500)
 		stubSize(el, 'clientWidth', 320)
 		el.measure()
-		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe('1')
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${MIN_EMAIL_SCALE}`)
 		expect(el).toHaveAttribute('data-email-pan')
+	})
+
+	it('fits a fixed layout a little wider than the pane whole instead of reflowing its columns', () => {
+		const el = mount(
+			'<table class="designed" width="640" style="min-width:640px"><tr><td>Day one</td></tr></table>',
+		)
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		const table = content.querySelector('.designed') as HTMLElement
+		stubSize(content, 'scrollWidth', 640)
+		stubSize(el, 'clientWidth', 528)
+		let detail: EmailLayoutStatusDetail | undefined
+		el.addEventListener(EMAIL_LAYOUT_STATUS_EVENT, (event) => {
+			detail = (event as CustomEvent<EmailLayoutStatusDetail>).detail
+		})
+		el.measure()
+		expect(table.style.getPropertyValue('width')).toBe('')
+		expect(content.style.getPropertyValue('--ownmail-email-scale')).toBe(`${528 / 640}`)
+		expect(detail).toMatchObject({ mode: 'readable', reflowed: false, needsFit: true, naturalWidth: 640 })
 	})
 
 	it('clears any scaling when content fits the pane', () => {
@@ -706,7 +752,8 @@ describe('<ownmail-email> scaling', () => {
 	it('emits a deduplicated composed layout status for the wrapper', () => {
 		const el = mount('<table width="600"><tr><td>x</td></tr></table>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
-		stubSize(content, 'scrollWidth', 600)
+		// Reflowed, the table fits the pane.
+		stubSize(content, 'scrollWidth', 300)
 		stubSize(content, 'scrollHeight', 200)
 		stubSize(el, 'clientWidth', 300)
 		const details: EmailLayoutStatusDetail[] = []
@@ -763,7 +810,8 @@ describe('<ownmail-email> scaling', () => {
 		const el = mount('<div class="wide" style="min-width:1200px!important;font-size:8px">Readable body</div>')
 		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
 		const wide = content.querySelector('.wide') as HTMLElement
-		stubSize(content, 'scrollWidth', 1_200)
+		// With its minimum width neutralised the layout fits, so nothing is scaled.
+		stubSize(content, 'scrollWidth', 320)
 		stubSize(el, 'clientWidth', 320)
 		el.measure()
 
@@ -773,6 +821,28 @@ describe('<ownmail-email> scaling', () => {
 		expect(wide.style.getPropertyPriority('min-width')).toBe('important')
 		expect(wide.style.getPropertyValue('font-size')).toBe('12px')
 		expect(wide.style.getPropertyPriority('font-size')).toBe('important')
+	})
+
+	it('leaves the small alt text of its own image placeholders at their size', () => {
+		const el = mount('<p>Your trip</p>')
+		const content = el.shadowRoot?.querySelector('.email-root') as HTMLElement
+		// The placeholders are drawn after sanitising, which drops any an email brings itself.
+		for (const attribute of ['data-ownmail-held-image', 'data-ownmail-image-fallback']) {
+			const placeholder = document.createElement('span')
+			placeholder.setAttribute(attribute, '')
+			placeholder.style.fontSize = '11px'
+			placeholder.textContent = 'Lisbon skyline'
+			content.append(placeholder)
+		}
+		stubSize(content, 'scrollWidth', 320)
+		stubSize(el, 'clientWidth', 320)
+		el.measure()
+
+		const placeholders = content.querySelectorAll<HTMLElement>('span')
+		expect(placeholders).toHaveLength(2)
+		for (const placeholder of placeholders) {
+			expect(placeholder.style.getPropertyValue('font-size')).toBe('11px')
+		}
 	})
 
 	it('normalizes explicit nowrap text in readable mode', () => {

@@ -82,6 +82,10 @@ export type Message = {
 	starred?: boolean
 	folders?: string[]
 	attachments?: MessageAttachment[]
+	/** Set on a message scheduled to send later: the id its schedule is cancelled by. */
+	schedule_id?: string
+	/** When a scheduled message sends, in Unix seconds. */
+	send_at?: number
 }
 
 /** Raw message envelope returned by Get Message with `fields=raw_mime`. */
@@ -944,6 +948,10 @@ export class GrantScopedClient {
 	}
 	send(body: SendMessageRequest): Promise<ItemResponse<Message>> {
 		return this.client.request('POST', this.path('/messages/send'), body)
+	}
+	/** Stops a scheduled message from sending (`DELETE /messages/schedules/{scheduleId}`). */
+	cancelScheduledMessage(scheduleId: string): Promise<void> {
+		return this.client.request('DELETE', this.path(`/messages/schedules/${encodeURIComponent(scheduleId)}`))
 	}
 
 	listThreads(query?: ListQuery): Promise<ListResponse<Thread>> {

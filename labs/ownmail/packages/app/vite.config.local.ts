@@ -15,6 +15,9 @@ export default defineConfig(({ command }) => ({
 			'cloudflare:workers': fileURLToPath(
 				new URL('./src/server/cloudflare-workers.local.ts', import.meta.url),
 			),
+			// The mock mailbox is repository-only (see src/server/dev-mailbox.ts): only
+			// this target, the mock app and the Node build the SSR smoke test serves, has it.
+			'./dev-mailbox.js': fileURLToPath(new URL('./src/server/dev-mocks.ts', import.meta.url)),
 		},
 	},
 	ssr: {

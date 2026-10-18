@@ -5,6 +5,11 @@ const MAX_HIDDEN_CALENDAR_IDS = 200
 const MAX_CALENDAR_ID_LENGTH = 1000
 const MAX_HIDDEN_CALENDAR_ACCOUNTS = 20
 const MAX_DISPLAY_NAME_ACCOUNTS = 20
+/** Muted conversations kept per mailbox on this device; the newest choices are kept past the cap. */
+export const MAX_MUTED_THREAD_IDS = 200
+/** Mailboxes with muted conversations kept on this device; the most recently written are kept. */
+export const MAX_MUTED_THREAD_ACCOUNTS = 20
+const MAX_THREAD_ID_LENGTH = 1000
 
 export type RemoteImagePolicy = 'ask' | 'always'
 
@@ -86,6 +91,15 @@ export type UserPreferences = {
 	 * choice made in one inbox must never hide a calendar in another.
 	 */
 	hiddenCalendarsByAccount: Record<string, string[]>
+	/**
+	 * Conversations muted on this device, keyed by mailbox email in the same way
+	 * as hidden calendars, each list oldest first. Thread ids are grant-scoped, so
+	 * muting in one inbox must never mute a thread in another. A muted thread
+	 * stays in its folder; its row and reader say so. Thread ids are long and
+	 * unbounded in number, so this map lives only in local storage, never in the
+	 * cookie.
+	 */
+	mutedThreadsByAccount: Record<string, string[]>
 }
 
 function browserTimezone(): string {
@@ -131,6 +145,7 @@ export function defaultUserPreferences(): UserPreferences {
 		calendarSidebarCollapsed: false,
 		calendarDetailPaneOpen: false,
 		hiddenCalendarsByAccount: {},
+		mutedThreadsByAccount: {},
 	}
 }
 
@@ -215,6 +230,84 @@ export function withHiddenCalendarIds(
 	return { ...preferences, hiddenCalendarsByAccount: { ...others, [key]: [...ids] } }
 }
 
+function validThreadId(id: unknown): id is string {
+	return typeof id === 'string' && id.length > 0 && id.length <= MAX_THREAD_ID_LENGTH && !/[\r\n]/.test(id)
+}
+
+function normalizeMutedThreadIds(value: unknown): string[] {
+	if (!Array.isArray(value)) return []
+	const ids: string[] = []
+	// A repeated id keeps its latest position, which is what the cap orders by.
+	for (const id of value) {
+		if (!validThreadId(id)) continue
+		const existing = ids.indexOf(id)
+		if (existing !== -1) ids.splice(existing, 1)
+		ids.push(id)
+	}
+	return ids.slice(-MAX_MUTED_THREAD_IDS)
+}
+
+function normalizeMutedThreadsByAccount(value: unknown): Record<string, string[]> {
+	if (!value || typeof value !== 'object' || Array.isArray(value)) return {}
+	const accounts = new Map<string, string[]>()
+	for (const [rawKey, rawIds] of Object.entries(value)) {
+		const key = accountKey(rawKey)
+		const ids = normalizeMutedThreadIds(rawIds)
+		if (!key || ids.length === 0) continue
+		// Two raw keys can normalize to the same mailbox; the later one wins and
+		// counts as the most recently written for the account cap.
+		accounts.delete(key)
+		accounts.set(key, ids)
+	}
+	// Keep the most recently written accounts when the stored map exceeds the cap.
+	return Object.fromEntries([...accounts].slice(-MAX_MUTED_THREAD_ACCOUNTS))
+}
+
+/** Muted conversation ids for one mailbox, oldest first; empty for an unusable email. */
+export function mutedThreadIdsFor(preferences: UserPreferences, email: string): string[] {
+	const key = accountKey(email)
+	return key ? (preferences.mutedThreadsByAccount[key] ?? []) : []
+}
+
+/** Whether a conversation is muted in one mailbox on this device. */
+export function isThreadMuted(preferences: UserPreferences, email: string, threadId: string): boolean {
+	return mutedThreadIdsFor(preferences, email).includes(threadId)
+}
+
+/**
+ * Mutes or unmutes one conversation in one mailbox, leaving other mailboxes
+ * untouched. Muting again moves it to the newest end of that mailbox's list.
+ */
+export function withThreadMuted(
+	preferences: UserPreferences,
+	email: string,
+	threadId: string,
+	muted: boolean,
+): UserPreferences {
+	const key = accountKey(email)
+	if (!key || !validThreadId(threadId)) return preferences
+	const { [key]: previous = [], ...others } = preferences.mutedThreadsByAccount
+	const ids = previous.filter((id) => id !== threadId)
+	if (muted) ids.push(threadId)
+	const capped = ids.slice(-MAX_MUTED_THREAD_IDS)
+	// Re-inserting last marks this account as most recent for the account cap;
+	// a mailbox with nothing muted is dropped rather than kept as an empty list.
+	const next = capped.length > 0 ? { ...others, [key]: capped } : others
+	return {
+		...preferences,
+		mutedThreadsByAccount: Object.fromEntries(Object.entries(next).slice(-MAX_MUTED_THREAD_ACCOUNTS)),
+	}
+}
+
+/** Flips one conversation's muted state in one mailbox. */
+export function toggleThreadMuted(
+	preferences: UserPreferences,
+	email: string,
+	threadId: string,
+): UserPreferences {
+	return withThreadMuted(preferences, email, threadId, !isThreadMuted(preferences, email, threadId))
+}
+
 export function normalizePreferences(value: unknown): UserPreferences {
 	const defaults = defaultUserPreferences()
 	if (!value || typeof value !== 'object' || Array.isArray(value)) return defaults
@@ -264,5 +357,8 @@ export function normalizePreferences(value: unknown): UserPreferences {
 		// attributed to an inbox, so it is deliberately dropped rather than applied
 		// to whichever inbox happens to be active.
 		hiddenCalendarsByAccount: normalizeHiddenCalendarsByAccount(input.hiddenCalendarsByAccount),
+		// A flat `mutedThreadIds` list never shipped, so it is ignored like any
+		// other unknown key.
+		mutedThreadsByAccount: normalizeMutedThreadsByAccount(input.mutedThreadsByAccount),
 	}
 }

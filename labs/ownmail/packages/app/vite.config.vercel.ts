@@ -14,6 +14,8 @@ export default defineConfig({
 		tanstackStart(),
 		nitro({
 			preset: 'vercel',
+			// The CLI packs this output beside the Cloudflare and Node builds under a 3.5 MB limit.
+			minify: true,
 			rollupConfig: {
 				external: ['cloudflare:workers'],
 			},

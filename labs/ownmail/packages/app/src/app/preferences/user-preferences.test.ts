@@ -12,13 +12,19 @@ import {
 	displayNameFor,
 	hiddenCalendarIdsFor,
 	isSupportedTimezone,
+	isThreadMuted,
+	MAX_MUTED_THREAD_ACCOUNTS,
+	MAX_MUTED_THREAD_IDS,
+	mutedThreadIdsFor,
 	readUserPreferences,
+	toggleThreadMuted,
 	USER_PREFERENCES_STORAGE_KEY,
 	userPreferencesTestApi,
 	useUserPreferences,
 	useUserPreferencesReady,
 	withDisplayName,
 	withHiddenCalendarIds,
+	withThreadMuted,
 	writeUserPreferences,
 } from './user-preferences.js'
 
@@ -63,6 +69,7 @@ describe('user preferences', () => {
 			calendarSidebarCollapsed: true,
 			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'Ada@Example.com': ['cal-work', 'cal-work', 'cal-home'] },
+			mutedThreadsByAccount: { 'Ada@Example.com': ['thread-1'] },
 		})
 		expect(saved).toEqual({
 			displayNameByAccount: { 'ada@example.com': 'Ada Lovelace' },
@@ -82,6 +89,7 @@ describe('user preferences', () => {
 			calendarSidebarCollapsed: true,
 			calendarDetailPaneOpen: true,
 			hiddenCalendarsByAccount: { 'ada@example.com': ['cal-work', 'cal-home'] },
+			mutedThreadsByAccount: { 'ada@example.com': ['thread-1'] },
 		})
 		expect(readUserPreferences()).toEqual(saved)
 		expect(isSupportedTimezone('not/a-timezone')).toBe(false)
@@ -465,5 +473,165 @@ describe('shared preference store', () => {
 		})
 		expect(result.current[0].readingPane).toBe('vertical')
 		unmount()
+	})
+})
+
+describe('muted conversations', () => {
+	const ADA = 'ada@ownmail.com'
+	const GRACE = 'grace@ownmail.com'
+
+	it('mutes and unmutes a conversation in one mailbox on this device without archiving anything', () => {
+		const initial = defaultUserPreferences()
+		expect(initial.mutedThreadsByAccount).toEqual({})
+		expect(isThreadMuted(initial, ADA, 't1')).toBe(false)
+		expect(mutedThreadIdsFor(initial, ADA)).toEqual([])
+
+		const muted = toggleThreadMuted(initial, ' Ada@OwnMail.com ', 't1')
+		expect(isThreadMuted(muted, ADA, 't1')).toBe(true)
+		expect(muted.mutedThreadsByAccount).toEqual({ [ADA]: ['t1'] })
+		expect(mutedThreadIdsFor(muted, 'ADA@ownmail.com')).toEqual(['t1'])
+		// Unmuting the last conversation drops the mailbox rather than keeping an empty list.
+		expect(toggleThreadMuted(muted, ADA, 't1').mutedThreadsByAccount).toEqual({})
+		expect(initial.mutedThreadsByAccount).toEqual({})
+	})
+
+	it('scopes muted conversations to their mailbox', () => {
+		// Thread ids are grant-scoped: the same id in another inbox is a different conversation.
+		const ada = withThreadMuted(defaultUserPreferences(), ADA, 'thread-staging', true)
+		expect(isThreadMuted(ada, ADA, 'thread-staging')).toBe(true)
+		expect(isThreadMuted(ada, GRACE, 'thread-staging')).toBe(false)
+		expect(mutedThreadIdsFor(ada, GRACE)).toEqual([])
+
+		const both = withThreadMuted(ada, GRACE, 'thread-other', true)
+		expect(both.mutedThreadsByAccount).toEqual({ [ADA]: ['thread-staging'], [GRACE]: ['thread-other'] })
+		// Unmuting in one mailbox, or unmuting a thread that was never muted, leaves the other untouched.
+		expect(withThreadMuted(both, GRACE, 'thread-staging', false).mutedThreadsByAccount).toEqual({
+			[ADA]: ['thread-staging'],
+			[GRACE]: ['thread-other'],
+		})
+		expect(withThreadMuted(both, GRACE, 'thread-other', false).mutedThreadsByAccount).toEqual({
+			[ADA]: ['thread-staging'],
+		})
+	})
+
+	it('moves a re-muted conversation to the newest end and keeps the newest past the cap', () => {
+		const ids = Array.from({ length: MAX_MUTED_THREAD_IDS }, (_, index) => `t${index}`)
+		const full = { ...defaultUserPreferences(), mutedThreadsByAccount: { [ADA]: ids } }
+		const remuted = withThreadMuted(full, ADA, 't0', true)
+		expect(mutedThreadIdsFor(remuted, ADA).at(-1)).toBe('t0')
+		expect(mutedThreadIdsFor(remuted, ADA)).toHaveLength(MAX_MUTED_THREAD_IDS)
+
+		const overflow = withThreadMuted(full, ADA, 'newest', true)
+		expect(mutedThreadIdsFor(overflow, ADA)).toHaveLength(MAX_MUTED_THREAD_IDS)
+		expect(mutedThreadIdsFor(overflow, ADA)[0]).toBe('t1')
+		expect(mutedThreadIdsFor(overflow, ADA).at(-1)).toBe('newest')
+		expect(mutedThreadIdsFor(withThreadMuted(full, ADA, 't5', false), ADA)).not.toContain('t5')
+	})
+
+	it('keeps the most recently muted mailboxes past the account cap', () => {
+		const accounts = Array.from(
+			{ length: MAX_MUTED_THREAD_ACCOUNTS },
+			(_, index) => `user${index}@ownmail.com`,
+		)
+		const full = accounts.reduce(
+			(preferences, email) => withThreadMuted(preferences, email, 't', true),
+			defaultUserPreferences(),
+		)
+		expect(Object.keys(full.mutedThreadsByAccount)).toEqual(accounts)
+
+		// Muting again in the oldest mailbox makes it the most recent one.
+		const touched = withThreadMuted(full, accounts[0] as string, 'u', true)
+		expect(Object.keys(touched.mutedThreadsByAccount).at(-1)).toBe(accounts[0])
+
+		const overflow = withThreadMuted(full, 'newest@ownmail.com', 't', true)
+		expect(Object.keys(overflow.mutedThreadsByAccount)).toHaveLength(MAX_MUTED_THREAD_ACCOUNTS)
+		expect(mutedThreadIdsFor(overflow, accounts[0] as string)).toEqual([])
+		expect(mutedThreadIdsFor(overflow, 'newest@ownmail.com')).toEqual(['t'])
+	})
+
+	it('ignores unusable thread ids and mailbox emails', () => {
+		const preferences = defaultUserPreferences()
+		expect(withThreadMuted(preferences, ADA, '', true)).toBe(preferences)
+		expect(withThreadMuted(preferences, ADA, 'bad\nid', true)).toBe(preferences)
+		expect(withThreadMuted(preferences, ADA, 'x'.repeat(1001), true)).toBe(preferences)
+		expect(withThreadMuted(preferences, 'not-an-email', 't1', true)).toBe(preferences)
+		expect(toggleThreadMuted(preferences, '', 't1')).toBe(preferences)
+		expect(isThreadMuted(preferences, '', 't1')).toBe(false)
+		expect(mutedThreadIdsFor(preferences, '')).toEqual([])
+	})
+
+	it('normalizes stored ids per mailbox: drops malformed entries and duplicates, and keeps the newest past the caps', () => {
+		const saved = writeUserPreferences({
+			...defaultUserPreferences(),
+			mutedThreadsByAccount: {
+				'Ada@OwnMail.com': ['a', 7, '', 'b\nc', 'b', 'a', 'x'.repeat(1001)],
+				'bad-key': ['z'],
+				'empty@ownmail.com': [],
+				'list@ownmail.com': 'a',
+			} as never,
+		})
+		expect(saved.mutedThreadsByAccount).toEqual({ [ADA]: ['b', 'a'] })
+		for (const mutedThreadsByAccount of ['a', ['a'], null]) {
+			expect(
+				writeUserPreferences({
+					...defaultUserPreferences(),
+					mutedThreadsByAccount: mutedThreadsByAccount as never,
+				}).mutedThreadsByAccount,
+			).toEqual({})
+		}
+		// A flat list from an unreleased build is not attributed to any mailbox.
+		expect(
+			writeUserPreferences({ ...defaultUserPreferences(), mutedThreadIds: ['t1'] } as never)
+				.mutedThreadsByAccount,
+		).toEqual({})
+
+		// Keys that normalize to the same mailbox collapse; the later one wins and counts as most recent.
+		const merged = writeUserPreferences({
+			...defaultUserPreferences(),
+			mutedThreadsByAccount: { [ADA]: ['old'], [GRACE]: ['g'], 'ADA@ownmail.com': ['new'] },
+		})
+		expect(merged.mutedThreadsByAccount).toEqual({ [GRACE]: ['g'], [ADA]: ['new'] })
+		expect(Object.keys(merged.mutedThreadsByAccount)).toEqual([GRACE, ADA])
+
+		const many = Array.from({ length: MAX_MUTED_THREAD_IDS + 5 }, (_, index) => `t${index}`)
+		const capped = writeUserPreferences({
+			...defaultUserPreferences(),
+			mutedThreadsByAccount: { [ADA]: many },
+		})
+		expect(mutedThreadIdsFor(capped, ADA)).toHaveLength(MAX_MUTED_THREAD_IDS)
+		expect(mutedThreadIdsFor(capped, ADA)[0]).toBe('t5')
+
+		const accounts = Object.fromEntries(
+			Array.from({ length: MAX_MUTED_THREAD_ACCOUNTS + 2 }, (_, index) => [
+				`user${index}@ownmail.com`,
+				['t'],
+			]),
+		)
+		const cappedAccounts = writeUserPreferences({
+			...defaultUserPreferences(),
+			mutedThreadsByAccount: accounts,
+		})
+		expect(Object.keys(cappedAccounts.mutedThreadsByAccount)).toHaveLength(MAX_MUTED_THREAD_ACCOUNTS)
+		expect(Object.keys(cappedAccounts.mutedThreadsByAccount)[0]).toBe('user2@ownmail.com')
+	})
+
+	it('keeps muted ids in local storage only, never in the preference cookie', () => {
+		writeUserPreferences({ ...defaultUserPreferences(), mutedThreadsByAccount: { [ADA]: ['thread-secret'] } })
+		expect(document.cookie).not.toContain('thread-secret')
+		expect(document.cookie).not.toContain('ownmail.com')
+		expect(
+			JSON.parse(localStorage.getItem(USER_PREFERENCES_STORAGE_KEY) ?? 'null').mutedThreadsByAccount,
+		).toEqual({ [ADA]: ['thread-secret'] })
+		userPreferencesTestApi.reset()
+		expect(readUserPreferences().mutedThreadsByAccount).toEqual({ [ADA]: ['thread-secret'] })
+	})
+
+	it('reads the device seed used by verifiers for the muted staging thread', () => {
+		localStorage.setItem(
+			USER_PREFERENCES_STORAGE_KEY,
+			JSON.stringify({ mutedThreadsByAccount: { 'ada@ownmail.com': ['thread-staging'] } }),
+		)
+		userPreferencesTestApi.reset()
+		expect(isThreadMuted(readUserPreferences(), ADA, 'thread-staging')).toBe(true)
 	})
 })

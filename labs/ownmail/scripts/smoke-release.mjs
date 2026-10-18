@@ -1,7 +1,16 @@
 import { execFileSync } from 'node:child_process'
-import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs'
+import {
+	existsSync,
+	mkdirSync,
+	mkdtempSync,
+	readdirSync,
+	readFileSync,
+	rmSync,
+	statSync,
+	writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 
 const repoRoot = resolve(fileURLToPath(new URL('../../..', import.meta.url)))
@@ -44,10 +53,20 @@ for (const forbidden of [
 	/package\/dist\/template\/src\/.*\.(?:test|spec)\.[cm]?[jt]sx?\n/,
 	/package\/dist\/template\/src\/.*\.fixture\..*\n/,
 	/package\/dist\/template\/src\/.*\/real-email-fixtures\//,
+	/package\/dist\/template\/src\/server\/dev-mocks\.ts\n/,
 ]) {
 	if (forbidden.test(cliPackageFiles)) {
 		throw new Error('Packed OwnMail CLI included development-only app tests or fixtures.')
 	}
+}
+// Ejected and exported apps build from the template source, so it must not
+// import anything the template leaves out (tests, fixtures, the mock mailbox).
+const extractDir = join(tempRoot, 'cli')
+mkdirSync(extractDir)
+execFileSync('tar', ['-xzf', tarballs[2], '-C', extractDir])
+const unresolved = unresolvedSourceImports(join(extractDir, 'package', 'dist', 'template'))
+if (unresolved.length > 0) {
+	throw new Error(`Packed OwnMail template source imports files it does not ship: ${unresolved.join(', ')}.`)
 }
 if (statSync(tarballs[2]).size > 3_500_000) {
 	throw new Error('Packed OwnMail CLI exceeded the 3.5 MB cold-start package budget.')
@@ -124,6 +143,42 @@ if (!version.includes(cliPackage.version)) {
 }
 
 console.log(`OwnMail ${cliPackage.version} packed-install smoke test passed.`)
+
+/** Relative and `#` imports in the template's source that name no file in the template. */
+function unresolvedSourceImports(templateRoot) {
+	const { imports } = JSON.parse(
+		readFileSync(resolve(repoRoot, 'labs/ownmail/packages/app/package.json'), 'utf8'),
+	)
+	const sourceFiles = readdirSync(join(templateRoot, 'src'), { recursive: true, withFileTypes: true })
+		.filter((entry) => entry.isFile() && /\.tsx?$/.test(entry.name))
+		.map((entry) => join(entry.parentPath, entry.name))
+	const missing = []
+	for (const file of sourceFiles) {
+		const source = readFileSync(file, 'utf8')
+		for (const [, specifier] of source.matchAll(/(?:\bfrom|\bimport\s*\(?)\s*['"]([.#][^'"]*)['"]/g)) {
+			const path = specifier.replace(/\?.*$/, '')
+			let target
+			if (path.startsWith('#')) {
+				const pattern = Object.keys(imports).find((key) => path.startsWith(key.replace('*', '')))
+				if (!pattern) {
+					missing.push(`${specifier} (${relative(templateRoot, file)})`)
+					continue
+				}
+				target = resolve(templateRoot, imports[pattern].replace('*', path.slice(pattern.length - 1)))
+			} else {
+				target = resolve(dirname(file), path)
+			}
+			// The app's package.json is the one the eject or export writes beside the source.
+			if (target === join(templateRoot, 'package.json')) continue
+			const stem = target.replace(/\.js$/, '')
+			const candidates = [target, `${stem}.ts`, `${stem}.tsx`]
+			if (!candidates.some((candidate) => existsSync(candidate) && statSync(candidate).isFile())) {
+				missing.push(`${specifier} (${relative(templateRoot, file)})`)
+			}
+		}
+	}
+	return missing
+}
 
 function runPnpm(args, cwd) {
 	try {

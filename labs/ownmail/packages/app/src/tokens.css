@@ -36,6 +36,18 @@
 	size-adjust: 107.12%;
 }
 
+/* The Arabic face for right-to-left paragraphs (.reader-arabic); fetched only for Arabic text. SIL OFL 1.1. */
+@font-face {
+	font-family: "Noto Naskh Arabic";
+	font-style: normal;
+	font-weight: 400 700;
+	font-display: swap;
+	src: url("/fonts/noto-naskh-arabic-arabic.woff2") format("woff2");
+	unicode-range:
+		U+0600-06FF, U+0750-077F, U+0870-088E, U+0890-0891, U+0897-08E1, U+08E3-08FF, U+200C-200E,
+		U+2010-2011, U+204F, U+2E41, U+FB50-FDFF, U+FE70-FE74, U+FE76-FEFC;
+}
+
 @theme inline {
 	/* Manrope is the one voice for body, UI and headings; Inter sets data (times,
 	 * dates, counts), where its tabular figures line up. */
@@ -62,6 +74,15 @@
 	--color-accent-foreground: var(--accent-foreground);
 	--color-bubble-own: var(--bubble-own);
 	--color-bubble-own-foreground: var(--bubble-own-fg);
+	/* Thread list (design.md "Thread list"): row rules, the open row, a row asking you, a draft, a send
+	 * that failed, the ask pill. */
+	--color-list-line: var(--list-line);
+	--color-list-selected: var(--list-selected);
+	--color-list-selected-line: var(--list-selected-line);
+	--color-list-asks: var(--list-asks);
+	--color-list-failed: var(--list-failed);
+	--color-signal-ask: var(--signal-ask);
+	--color-signal-ask-foreground: var(--signal-ask-fg);
 	--color-destructive: var(--destructive);
 	--color-destructive-foreground: var(--destructive-foreground);
 	--color-border: var(--border);
@@ -83,6 +104,26 @@
 	--color-today-foreground: var(--today-fg);
 	--color-cta-line: var(--cta-line);
 	--color-cta-icon: var(--cta-icon);
+	/* People (design.md "Message header"): an avatar tint per hue, the owner on the green pair. */
+	--color-avatar-75: var(--avatar-75);
+	--color-avatar-75-foreground: var(--avatar-75-fg);
+	--color-avatar-250: var(--avatar-250);
+	--color-avatar-250-foreground: var(--avatar-250-fg);
+	--color-avatar-32: var(--avatar-32);
+	--color-avatar-32-foreground: var(--avatar-32-fg);
+	--color-avatar-158: var(--avatar-158);
+	--color-avatar-158-foreground: var(--avatar-158-fg);
+	--color-avatar-300: var(--avatar-300);
+	--color-avatar-300-foreground: var(--avatar-300-fg);
+	--color-avatar-200: var(--avatar-200);
+	--color-avatar-200-foreground: var(--avatar-200-fg);
+	/* Notices (design.md "Notices"): severity is a uniform line, a tint and a glyph. */
+	--color-notice-warning: var(--notice-warning);
+	--color-notice-warning-line: var(--notice-warning-line);
+	--color-notice-warning-foreground: var(--notice-warning-fg);
+	--color-notice-danger: var(--notice-danger);
+	--color-notice-danger-line: var(--notice-danger-line);
+	--color-notice-danger-foreground: var(--notice-danger-fg);
 
 	--radius-sm: calc(var(--radius) * 0.75);
 	--radius-md: var(--radius);
@@ -143,6 +184,16 @@
 	 * token here; in the dark theme it is the green accent surface itself. */
 	--bubble-own: oklch(0.935 0.035 158);
 	--bubble-own-fg: oklch(0.2 0.035 160);
+	/* Thread list: rows part on a rule lighter than `--border`; the open row (and the
+	 * thread map's current row) is a green tint in a 1px ring; amber asks ("Asks you",
+	 * "1 question to you"), a failed send is a red tint whose text is `--danger-soft-fg`. */
+	--list-line: oklch(0.94 0.003 145);
+	--list-selected: oklch(0.955 0.012 158);
+	--list-selected-line: oklch(0.88 0.03 158);
+	--list-asks: oklch(0.985 0.004 158);
+	--list-failed: oklch(0.98 0.012 25);
+	--signal-ask: oklch(0.95 0.04 75);
+	--signal-ask-fg: oklch(0.4 0.08 65);
 	--destructive: oklch(0.55 0.2 25);
 	--destructive-foreground: oklch(1 0 0);
 	--border: oklch(0.91 0.003 145);
@@ -172,6 +223,26 @@
 	/* The module create action (design.md "CTA voice"): an outline with the accent on its icon only. */
 	--cta-line: oklch(0.87 0.006 150);
 	--cta-icon: oklch(0.44 0.085 158);
+	/* Avatar tints: initials on a quiet fill, one pair per hue of the person palette. */
+	--avatar-75: oklch(0.88 0.05 75);
+	--avatar-75-fg: oklch(0.3 0.06 60);
+	--avatar-250: oklch(0.88 0.05 250);
+	--avatar-250-fg: oklch(0.3 0.08 255);
+	--avatar-32: oklch(0.88 0.05 32);
+	--avatar-32-fg: oklch(0.32 0.08 30);
+	--avatar-158: oklch(0.9 0.04 158);
+	--avatar-158-fg: oklch(0.28 0.06 160);
+	--avatar-300: oklch(0.88 0.05 300);
+	--avatar-300-fg: oklch(0.32 0.08 300);
+	--avatar-200: oklch(0.88 0.03 200);
+	--avatar-200-fg: oklch(0.3 0.06 200);
+	/* Notices: amber when something is worth checking, red when it may not be safe. */
+	--notice-warning: oklch(0.97 0.025 75);
+	--notice-warning-line: oklch(0.85 0.06 75);
+	--notice-warning-fg: oklch(0.32 0.06 60);
+	--notice-danger: oklch(0.97 0.02 25);
+	--notice-danger-line: oklch(0.82 0.08 25);
+	--notice-danger-fg: oklch(0.38 0.12 25);
 	font-family: var(--font-sans);
 }
 
@@ -199,6 +270,13 @@
 	--accent-foreground: oklch(0.92 0.06 158);
 	--bubble-own: oklch(0.26 0.04 160);
 	--bubble-own-fg: oklch(0.92 0.06 158);
+	--list-line: oklch(1 0 0 / 6%);
+	--list-selected: oklch(0.24 0.035 160);
+	--list-selected-line: oklch(0.42 0.06 158);
+	--list-asks: oklch(0.19 0.015 160);
+	--list-failed: oklch(0.21 0.035 25);
+	--signal-ask: oklch(0.32 0.05 75);
+	--signal-ask-fg: oklch(0.9 0.07 80);
 	--destructive: oklch(0.66 0.19 25);
 	--destructive-foreground: oklch(0 0 0);
 	--border: oklch(1 0 0 / 9%);
@@ -223,4 +301,170 @@
 	--sidebar-ring: oklch(0.88 0.01 150);
 	--cta-line: oklch(1 0 0 / 14%);
 	--cta-icon: oklch(0.8 0.11 158);
+	--avatar-75: oklch(0.36 0.06 75);
+	--avatar-75-fg: oklch(0.9 0.06 75);
+	--avatar-250: oklch(0.36 0.06 250);
+	--avatar-250-fg: oklch(0.9 0.05 250);
+	--avatar-32: oklch(0.36 0.06 32);
+	--avatar-32-fg: oklch(0.9 0.05 32);
+	--avatar-158: oklch(0.34 0.05 158);
+	--avatar-158-fg: oklch(0.92 0.06 158);
+	--avatar-300: oklch(0.36 0.06 300);
+	--avatar-300-fg: oklch(0.9 0.05 300);
+	--avatar-200: oklch(0.36 0.04 200);
+	--avatar-200-fg: oklch(0.9 0.04 200);
+	--notice-warning: oklch(0.24 0.035 75);
+	--notice-warning-line: oklch(0.42 0.06 75);
+	--notice-warning-fg: oklch(0.88 0.07 80);
+	--notice-danger: oklch(0.24 0.04 25);
+	--notice-danger-line: oklch(0.45 0.09 25);
+	--notice-danger-fg: oklch(0.86 0.07 25);
+}
+
+/* Reading experience (design.md "Thread map", "Files shelf", "Catch-up",
+ * "Edge states", "Reading"). One token per role, light and dark:
+ * - `--person-dot-*`: a person's strong dot in the six avatar hues (the owner is
+ *   158): a new message in the reader's dots column and every row of the map panel.
+ *   `--map-dot-*` is the light tint of a read message's dot and `-ring` the soft
+ *   ring of the message in focus. The dots carry no text.
+ * - `--file-*`: the file-type tiles of the files shelf and attachment chips.
+ * - `--danger-soft`: the danger ground of a draft pill; `--danger-soft-fg` is every
+ *   danger text (a draft, a send that failed) on it or on the plane.
+ * - `--quiet-fg`: the quiet text action and quoted history.
+ * - `--control-fg`: the reader's quiet controls: its icon buttons (toolbar,
+ *   stepper, a message's hover actions) and a folded run's count, a step
+ *   stronger than muted text.
+ * - `--note-fg`: the text of a neutral note in the stream (a removed person, a
+ *   mailing list) and of a draft's preview: between body text and muted.
+ * - `--reader-reply-shadow`: the soft shadow under the pinned reply card.
+ * - `--bar-icon-fg`: the icons of the phone thread's top and bottom bars
+ *   (Back, Archive, More, Reply, Forward): a step softer than body text, as
+ *   board 03 draws them.
+ * - `--image-held` / `--image-held-stripe`: the two stripes of a held image's
+ *   placeholder (board 06, card 7), under its muted alt text.
+ * - `--email-ink`: message text on a light email canvas (board 01's body
+ *   text). The canvas stays light in either theme (an email's own dark
+ *   rendering sets its own ink), so the value does not change with it.
+ * Text on each ground keeps 4.5:1 in both themes. */
+@theme inline {
+	--color-person-dot-75: var(--person-dot-75);
+	--color-person-dot-250: var(--person-dot-250);
+	--color-person-dot-32: var(--person-dot-32);
+	--color-person-dot-158: var(--person-dot-158);
+	--color-person-dot-300: var(--person-dot-300);
+	--color-person-dot-200: var(--person-dot-200);
+	--color-map-dot-75: var(--map-dot-75);
+	--color-map-dot-75-ring: var(--map-dot-75-ring);
+	--color-map-dot-250: var(--map-dot-250);
+	--color-map-dot-250-ring: var(--map-dot-250-ring);
+	--color-map-dot-32: var(--map-dot-32);
+	--color-map-dot-32-ring: var(--map-dot-32-ring);
+	--color-map-dot-158: var(--map-dot-158);
+	--color-map-dot-158-ring: var(--map-dot-158-ring);
+	--color-map-dot-300: var(--map-dot-300);
+	--color-map-dot-300-ring: var(--map-dot-300-ring);
+	--color-map-dot-200: var(--map-dot-200);
+	--color-map-dot-200-ring: var(--map-dot-200-ring);
+	--color-file-pdf: var(--file-pdf);
+	--color-file-pdf-foreground: var(--file-pdf-fg);
+	--color-file-sheet: var(--file-sheet);
+	--color-file-sheet-foreground: var(--file-sheet-fg);
+	--color-file-doc: var(--file-doc);
+	--color-file-doc-foreground: var(--file-doc-fg);
+	--color-file-slides: var(--file-slides);
+	--color-file-slides-foreground: var(--file-slides-fg);
+	--color-file-image: var(--file-image);
+	--color-danger-soft: var(--danger-soft);
+	--color-danger-soft-foreground: var(--danger-soft-fg);
+	--color-quiet-foreground: var(--quiet-fg);
+	--color-control-foreground: var(--control-fg);
+	--color-note-foreground: var(--note-fg);
+	--color-bar-icon-foreground: var(--bar-icon-fg);
+	--color-progress-track: var(--progress-track);
+	--color-image-held: var(--image-held);
+	--color-image-held-stripe: var(--image-held-stripe);
+	--shadow-reader-reply: var(--reader-reply-shadow);
+}
+
+:root {
+	--person-dot-75: oklch(0.65 0.12 75);
+	--person-dot-250: oklch(0.55 0.1 250);
+	--person-dot-32: oklch(0.6 0.1 32);
+	--person-dot-158: oklch(0.55 0.08 158);
+	--person-dot-300: oklch(0.6 0.1 300);
+	--person-dot-200: oklch(0.55 0.08 200);
+	--map-dot-75: oklch(0.8 0.08 75);
+	--map-dot-75-ring: oklch(0.9 0.04 75);
+	--map-dot-250: oklch(0.8 0.06 250);
+	--map-dot-250-ring: oklch(0.9 0.04 250);
+	--map-dot-32: oklch(0.8 0.06 32);
+	--map-dot-32-ring: oklch(0.9 0.04 32);
+	--map-dot-158: oklch(0.85 0.05 158);
+	--map-dot-158-ring: oklch(0.9 0.04 158);
+	--map-dot-300: oklch(0.8 0.06 300);
+	--map-dot-300-ring: oklch(0.9 0.04 300);
+	--map-dot-200: oklch(0.8 0.06 200);
+	--map-dot-200-ring: oklch(0.9 0.04 200);
+	--file-pdf: oklch(0.94 0.04 25);
+	--file-pdf-fg: oklch(0.45 0.15 25);
+	--file-sheet: oklch(0.93 0.05 150);
+	--file-sheet-fg: oklch(0.4 0.1 150);
+	--file-doc: oklch(0.93 0.03 250);
+	--file-doc-fg: oklch(0.4 0.1 250);
+	--file-slides: oklch(0.95 0.04 75);
+	--file-slides-fg: oklch(0.4 0.08 65);
+	--file-image: oklch(0.9 0.03 250);
+	--danger-soft: oklch(0.96 0.03 25);
+	--danger-soft-fg: oklch(0.48 0.17 25);
+	--quiet-fg: oklch(0.4 0.01 165);
+	--control-fg: oklch(0.35 0.01 165);
+	--note-fg: oklch(0.3 0.01 165);
+	--bar-icon-fg: oklch(0.25 0.01 165);
+	/* A progress bar's empty track: a step lighter than the border (board 06, card 9). */
+	--progress-track: oklch(0.93 0.003 145);
+	--image-held: oklch(0.96 0.003 145);
+	--image-held-stripe: oklch(0.94 0.003 145);
+	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
+	--email-ink: oklch(0.2 0.01 165);
+}
+
+.dark {
+	--person-dot-75: oklch(0.78 0.12 75);
+	--person-dot-250: oklch(0.74 0.1 250);
+	--person-dot-32: oklch(0.74 0.11 32);
+	--person-dot-158: oklch(0.76 0.1 158);
+	--person-dot-300: oklch(0.74 0.1 300);
+	--person-dot-200: oklch(0.76 0.09 200);
+	--map-dot-75: oklch(0.48 0.07 75);
+	--map-dot-75-ring: oklch(0.36 0.05 75);
+	--map-dot-250: oklch(0.46 0.06 250);
+	--map-dot-250-ring: oklch(0.34 0.05 250);
+	--map-dot-32: oklch(0.46 0.06 32);
+	--map-dot-32-ring: oklch(0.34 0.05 32);
+	--map-dot-158: oklch(0.46 0.05 158);
+	--map-dot-158-ring: oklch(0.34 0.04 158);
+	--map-dot-300: oklch(0.46 0.06 300);
+	--map-dot-300-ring: oklch(0.34 0.05 300);
+	--map-dot-200: oklch(0.46 0.05 200);
+	--map-dot-200-ring: oklch(0.34 0.04 200);
+	--file-pdf: oklch(0.3 0.06 25);
+	--file-pdf-fg: oklch(0.84 0.09 25);
+	--file-sheet: oklch(0.3 0.05 150);
+	--file-sheet-fg: oklch(0.85 0.09 150);
+	--file-doc: oklch(0.3 0.04 250);
+	--file-doc-fg: oklch(0.84 0.07 250);
+	--file-slides: oklch(0.32 0.05 75);
+	--file-slides-fg: oklch(0.9 0.07 80);
+	--file-image: oklch(0.32 0.04 250);
+	--danger-soft: oklch(0.27 0.06 25);
+	--danger-soft-fg: oklch(0.82 0.1 25);
+	--quiet-fg: oklch(0.82 0.008 155);
+	--control-fg: oklch(0.86 0.006 155);
+	--note-fg: oklch(0.88 0.006 155);
+	--bar-icon-fg: oklch(0.9 0.006 155);
+	--progress-track: oklch(1 0 0 / 7%);
+	--image-held: oklch(0.22 0.014 165);
+	--image-held-stripe: oklch(0.24 0.014 165);
+	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
+	--email-ink: oklch(0.2 0.01 165);
 }

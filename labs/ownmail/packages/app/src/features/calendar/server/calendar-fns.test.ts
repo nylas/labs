@@ -592,7 +592,7 @@ describe('calendar server functions', () => {
 				...CREATE,
 				description: 'Deck review',
 				location: 'Aurora room',
-				participants: ['grace@vercel.com'],
+				participants: ['grace.hopper@vercel.com'],
 				calendarId: 'work',
 			},
 		})
@@ -604,7 +604,7 @@ describe('calendar server functions', () => {
 				description: 'Deck review',
 				location: 'Aurora room',
 				when: { start_time: 1_800_000_000, end_time: 1_800_003_600 },
-				participants: [{ email: 'grace@vercel.com' }],
+				participants: [{ email: 'grace.hopper@vercel.com' }],
 			},
 			'work',
 		)

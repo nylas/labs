@@ -65,6 +65,13 @@
 	display: none;
 }
 
+/* Chrome that sticks inside a scroll area (the long-message progress strip,
+ * the reply dock) sits over the area's overflow fades (z 20), so a pinned bar
+ * never reads washed out, and under its scrollbar (z 30). */
+.scroll-area-sticky {
+	z-index: 25;
+}
+
 .app-chrome-row {
 	height: calc(2.75rem + var(--safe-area-top));
 	padding-top: var(--safe-area-top);
@@ -224,18 +231,983 @@
 	box-shadow: 0 0 0 2px var(--ring);
 }
 
+/* The avatar 10px from the name on a phone (board 03), 12px from the desktop reader's one line (board 01). */
+.message-header-row {
+	gap: 10px;
+}
+
+@media (min-width: 48rem) {
+	.message-header-row {
+		gap: 12px;
+	}
+}
+
 /*
  * A message header in the thread reader is a 40px row with a fine pointer. On
  * narrow and touch-capable devices it keeps the 44px touch floor.
  */
-.message-header-row {
-	min-height: 2.5rem;
-}
-
+/*
+ * An open header is as tall as its avatar and actions (boards 01 and 03): its
+ * name, recipients and actions are targets of their own. A collapsed header
+ * opens from anywhere on it, so on a touch screen it is a full target.
+ */
 @media (max-width: 48rem), (any-pointer: coarse) {
-	.message-header-row {
+	[data-slot="message-header"][data-state="collapsed"] .message-header-row {
 		min-height: var(--touch-target-min);
 	}
+}
+
+/* A message's Reply, Forward and Quote: three 28px buttons in one bordered group, 2px apart (board 01). */
+.message-hover-actions {
+	gap: 2px;
+	padding: 2px;
+	border-radius: 8px;
+}
+
+/*
+ * The reader's own recipes, at the boards' measures where they fall between
+ * the spacing steps (design.md "Reading": one recipe per kind of thing).
+ */
+
+/* Icons in the reader and the list draw a 1.75 stroke, as every board does. */
+[data-testid="thread-reader"] svg.lucide,
+[data-slot="mobile-reply-bar"] svg.lucide,
+.thread-row svg.lucide,
+.thread-bundle svg.lucide {
+	stroke-width: 1.75;
+}
+
+/* The latest message closes the stream with less room below (board 01). */
+@media (min-width: 48rem) {
+	.reader-message[data-latest] {
+		padding-bottom: 16px;
+	}
+}
+
+/* A file under a message: 10px 12px around a 32 by 40 type tile with 4px corners. */
+.attachment-chip {
+	padding: 10px 12px;
+}
+
+.attachment-chip-tile {
+	border-radius: 4px;
+}
+
+/* The quiet file chip under an empty body (board 06, card 1). */
+.attachment-chip-compact {
+	gap: 6px;
+	padding: 0 10px;
+}
+
+/* "Quoted text and signature": the icon 6px from its words. */
+.quoted-pill {
+	gap: 6px;
+}
+
+/* The split history and signature pills are a step larger (board 05, step 4). */
+.quoted-pill-split {
+	padding-inline: 9px;
+}
+
+/* The pills sit 14px under the last line the person wrote (board 01). */
+.body-disclosures {
+	margin-top: 14px;
+}
+
+/* Opened history sits 18px under the pills; each excerpt is a 12px by 14px box (board 05, step 4). */
+.quoted-history {
+	margin-top: 18px;
+}
+
+.quoted-excerpt {
+	padding: 12px 14px;
+}
+
+/* "Go to Grace's message" is 6px under the excerpt's words. */
+.quoted-excerpt-link {
+	margin-top: 6px;
+}
+
+/* Notices stand apart from the body under them, 10px from each other (board 05, step 3). */
+.message-notices,
+.superseded-invite {
+	margin-bottom: 16px;
+}
+
+.message-notices {
+	gap: 10px;
+}
+
+.message-notice {
+	gap: 10px;
+	padding: 12px 14px;
+}
+
+/* "Reply all will reach 31 people.": a compact note, 8px by 10px (board 06, card 11). */
+.reply-all-guard {
+	padding: 8px 10px;
+}
+
+/* The details panel and the sender's card (board 05, steps 2 and 4). */
+.message-details {
+	gap: 14px;
+}
+
+.person-chip {
+	gap: 6px;
+	padding: 0 8px 0 3px;
+}
+
+.details-button {
+	padding: 0 10px;
+}
+
+.sender-card {
+	gap: 10px;
+	padding: 14px;
+}
+
+.sender-card-who {
+	gap: 10px;
+}
+
+.sender-card-actions {
+	gap: 6px;
+}
+
+/*
+ * The "{n} more new" pill: its arrow 6px from the words, 14px in from each
+ * end (board 03). It always floats over the text being read, so its glass is
+ * the denser 92% of the board: lines passing under it stay out of the words.
+ */
+.jump-pill {
+	--glass-bg: color-mix(in oklch, var(--card) 92%, transparent);
+	gap: 6px;
+	padding: 0 14px;
+}
+
+/* The long-thread tools (board 04): the catch-up and files cards, the map, their pills and rows. */
+.tool-card {
+	gap: 14px;
+}
+
+.tool-facts {
+	gap: 6px;
+}
+
+.tool-fact {
+	gap: 6px;
+	padding: 0 10px;
+}
+
+.tool-eyebrow {
+	gap: 6px;
+}
+
+.tool-summary {
+	padding-left: 18px;
+}
+
+.tool-button {
+	padding: 0 10px;
+}
+
+.map-card {
+	gap: 10px;
+}
+
+.map-row {
+	gap: 10px;
+	padding: 7px 10px;
+}
+
+/* A subject change sits in a row's own box; the "You stopped here" rule is a little tighter. */
+.map-event {
+	padding: 7px 10px;
+}
+
+.map-stopped {
+	padding: 6px 10px;
+}
+
+.map-chip {
+	padding: 0 6px;
+}
+
+.map-footnote {
+	padding-top: 6px;
+}
+
+/* The "g m" key: 5px either side of the letters, as board 04 sets it. */
+.map-footnote kbd {
+	padding: 1px 5px;
+}
+
+.file-tile {
+	gap: 10px;
+	padding: 10px;
+}
+
+/*
+ * The standard reader (design.md "Reading"): one 760px column that starts 64px
+ * into the pane on wide screens, a thread map of dots beside it, and the reply
+ * card pinned under the stream. Rows and lines run edge to edge on a phone.
+ */
+.reader {
+	position: relative;
+	display: flex;
+	flex-direction: column;
+}
+
+.reader-layout {
+	display: flex;
+	flex: 1;
+	align-items: stretch;
+}
+
+.reader-main {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	min-width: 0;
+}
+
+.reader-messages {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	padding-bottom: 1rem;
+}
+
+/* The toolbar's icon buttons sit 2px apart, as one row of controls. */
+@media (min-width: 48rem) {
+	.reader-toolbar,
+	.reader-toolbar > div,
+	.reader-toolbar [data-slot="thread-actions"],
+	.reader-toolbar [data-slot="thread-view-switch"] {
+		gap: 2px;
+	}
+}
+
+/* With a fine pointer the view switch and display options match the toolbar's 32px icon buttons. */
+@media (min-width: 48rem) and (not (any-pointer: coarse)) {
+	.reader-toolbar [data-slot="thread-view-switch"] button,
+	.reader-toolbar [data-slot="thread-display-menu"] > button {
+		width: 32px;
+		height: 32px;
+	}
+}
+
+.reader-toolbar [data-slot="thread-stepper"] {
+	gap: 2px;
+}
+
+.reader-stepper-count {
+	min-width: 56px;
+	text-align: center;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-all {
+	gap: 6px;
+	padding-inline: 12px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--foreground);
+}
+
+/* Header: the subject, then people, length, span and files on one muted line. */
+.reader-header {
+	padding-top: 18px;
+	padding-bottom: 14px;
+}
+
+/* A stand-in subject's caption sits 8px under it (board 06, card 2). */
+.reader-title-block {
+	display: flex;
+	min-width: 0;
+	flex-direction: column;
+	gap: 8px;
+}
+
+.reader-title {
+	margin: 0;
+	font-family: var(--font-display);
+	font-size: 21px;
+	font-weight: 600;
+	line-height: 1.3;
+	letter-spacing: -0.02em;
+	overflow-wrap: anywhere;
+}
+
+.reader-title-caption {
+	margin: 0;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+.reader-meta {
+	display: none;
+}
+
+.reader-labels {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 10px;
+}
+
+/* The phone thread screen (board 03) is the subject and the messages; labels stay in the list and on desktop. */
+@media (width < 48rem) {
+	.reader-labels {
+		display: none;
+	}
+}
+
+@media (min-width: 48rem) {
+	.reader-header {
+		padding-top: 28px;
+		padding-bottom: 20px;
+	}
+
+	.reader-title {
+		font-size: 24px;
+		line-height: 1.25;
+	}
+
+	.reader-meta {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 4px 12px;
+		margin-top: 10px;
+		font-size: 13px;
+		color: var(--muted-foreground);
+	}
+}
+
+.reader-meta-files {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 0;
+	color: inherit;
+	cursor: pointer;
+}
+
+.reader-meta-files:hover,
+.reader-meta-files[aria-expanded="true"] {
+	color: var(--foreground);
+}
+
+.reader-meta-files:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+.reader-files-shelf {
+	padding-bottom: 20px;
+}
+
+/* A full-length 1px line between messages and rows. */
+.reader-rule {
+	border-top: 1px solid var(--border);
+}
+
+/* One read message on one line; on a phone the preview drops under the name. */
+.reader-line {
+	display: grid;
+	grid-template-columns: 28px minmax(0, 1fr) auto;
+	grid-template-areas:
+		"avatar name date"
+		"avatar preview preview";
+	align-items: center;
+	column-gap: 10px;
+	width: 100%;
+	border: 0;
+	background: transparent;
+	padding: 12px 0;
+	text-align: left;
+	color: inherit;
+	cursor: pointer;
+}
+
+.reader-line-avatar {
+	grid-area: avatar;
+}
+
+.reader-line-name {
+	grid-area: name;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 14px;
+	font-weight: 500;
+	/* The boards set one-line rows at the font's own line height. */
+	line-height: normal;
+}
+
+.reader-line-preview {
+	grid-area: preview;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	font-size: 13px;
+	color: var(--muted-foreground);
+	line-height: normal;
+}
+
+.reader-line-date {
+	grid-area: date;
+	min-width: 0;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+/* An Arabic paragraph of a plain-text message, in the bundled Naskh face (tokens.css). */
+.reader-arabic {
+	font-family: "Noto Naskh Arabic", "Geeza Pro", "Segoe UI", serif;
+	font-size: 15px;
+}
+
+/* "In Trash ·": a message shown from Trash says where it is. */
+.reader-in-trash {
+	display: inline-flex;
+	align-items: center;
+	gap: 4px;
+	font-weight: 600;
+	color: var(--muted-foreground);
+}
+
+/* "In Trash · Lodge…": the row's 4px gap before the dot, as much after it. */
+.reader-in-trash-separator {
+	margin-inline-end: 4px;
+}
+
+.reader-trash-note {
+	margin: 0 0 8px;
+	font-size: 12px;
+}
+
+.reader-trash-note .reader-in-trash-separator {
+	display: none;
+}
+
+.reader-line:hover .reader-line-preview {
+	color: var(--foreground);
+}
+
+.reader-line:focus-visible,
+.reader-folded:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+@media (min-width: 48rem) {
+	.reader-line {
+		grid-template-columns: 28px 132px minmax(0, 1fr) auto;
+		grid-template-areas: "avatar name preview date";
+		column-gap: 12px;
+	}
+
+	.reader-line-preview {
+		font-size: 14px;
+	}
+}
+
+/* A folded run: a centred stacked row; on a phone a 48px band on the quiet ground. */
+.reader-folded {
+	display: flex;
+	width: 100%;
+	min-height: 48px;
+	align-items: center;
+	justify-content: center;
+	gap: 10px;
+	border: 0;
+	--folded-ground: var(--secondary);
+	background: var(--folded-ground);
+	padding: 0 16px;
+	font-size: 13px;
+	color: inherit;
+	cursor: pointer;
+}
+
+/* The stacked avatars are ringed in the row's own ground, so the ring parts them without a halo. */
+.reader-folded [data-slot="avatar"] {
+	--tw-ring-color: var(--folded-ground);
+}
+
+.reader-folded-count {
+	font-weight: 600;
+	color: var(--control-fg);
+}
+
+.reader-folded-meta {
+	display: none;
+	min-width: 0;
+	overflow: hidden;
+	text-overflow: ellipsis;
+	white-space: nowrap;
+	color: var(--muted-foreground);
+}
+
+.reader-folded-chevron {
+	display: none;
+	width: 14px;
+	height: 14px;
+	flex: none;
+	color: var(--muted-foreground);
+}
+
+@media (min-width: 48rem) {
+	.reader-folded {
+		min-height: 0;
+		gap: 12px;
+		--folded-ground: var(--background);
+		background: transparent;
+		padding: 10px 0;
+	}
+
+	.reader-folded-meta,
+	.reader-folded-chevron {
+		display: block;
+	}
+
+	.reader-folded:hover .reader-folded-count {
+		color: var(--foreground);
+	}
+}
+
+/* Rows and lines run edge to edge on a phone, past the column's gutter. */
+@media (width < 40rem) {
+	.reader-rule,
+	.reader-line,
+	.reader-folded {
+		margin-inline: -1rem;
+		width: calc(100% + 2rem);
+	}
+
+	.reader-line {
+		padding-inline: 1rem;
+	}
+}
+
+@media (40rem <= width < 48rem) {
+	.reader-rule,
+	.reader-line,
+	.reader-folded {
+		margin-inline: -1.5rem;
+		width: calc(100% + 3rem);
+	}
+
+	.reader-line {
+		padding-inline: 1.5rem;
+	}
+}
+
+/* "3 new since Tuesday": neutral lines, the label and its dot in the green accent. */
+.reader-divider {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	padding: 14px 0 4px;
+}
+
+.reader-divider-line {
+	flex: 1;
+	height: 1px;
+	margin: 0;
+	border: 0;
+	background: var(--border);
+}
+
+.reader-divider-label {
+	display: inline-flex;
+	align-items: center;
+	gap: 6px;
+	font-size: 12px;
+	font-weight: 600;
+	color: var(--cta-icon);
+}
+
+.reader-divider-dot {
+	width: 6px;
+	height: 6px;
+	border-radius: 999px;
+	background: var(--cta-icon);
+}
+
+.reader-system-line {
+	margin: 0;
+	padding: 4px 0 8px;
+	text-align: center;
+	font-size: 12px;
+	color: var(--muted-foreground);
+}
+
+/* A message that could not load, marked where it was. */
+.reader-missing-line {
+	display: flex;
+	align-items: center;
+	justify-content: center;
+	gap: 4px;
+}
+
+.reader-missing-retry {
+	font-weight: 600;
+	color: var(--primary);
+	border-radius: 4px;
+	outline: none;
+}
+
+.reader-missing-retry:hover {
+	text-decoration: underline;
+}
+
+.reader-missing-retry:focus-visible {
+	box-shadow: 0 0 0 2px var(--ring);
+}
+
+.reader-message {
+	padding: 12px 0 16px;
+}
+
+.reader-message-content {
+	padding-top: 12px;
+}
+
+.reader-attachments {
+	display: flex;
+	flex-wrap: wrap;
+	gap: 8px;
+	margin-top: 14px;
+}
+
+/* "Not sent." or "Sends Mon 9:00 AM" is a row of its own, as far under the words as the files are. */
+.outgoing-status {
+	margin-top: 14px;
+}
+
+.reader-catch-up {
+	padding: 16px 0;
+}
+
+/* "Couldn't load 2 messages" stands clear of the rows under it, as the catch-up card does. */
+.reader-partial-load {
+	padding-bottom: 16px;
+}
+
+.reader-draft {
+	padding: 12px 0;
+}
+
+@media (min-width: 48rem) {
+	.reader-divider {
+		gap: 12px;
+		padding: 14px 0 6px;
+	}
+
+	.reader-message {
+		padding: 14px 0 20px;
+	}
+}
+
+/* The catch-up card is for the desktop reader; a phone has the "more new" pill instead. */
+@media (width < 48rem) {
+	[data-slot="stream-rule"][data-before="catch-up"],
+	[data-slot="stream-item"][data-kind="catch-up"] {
+		display: none;
+	}
+}
+
+/* A message takes focus when the reader moves to it; the stepper and the map say which one it is. */
+[data-slot="stream-item"]:focus {
+	outline: none;
+}
+
+[data-slot="stream-item"][data-source] {
+	background: color-mix(in oklch, var(--cta-icon) 7%, transparent);
+}
+
+/* The thread map's dots, beside the stream from `lg`; they stay in view as it scrolls. */
+.reader-map {
+	display: none;
+}
+
+/* The column runs the reader's full height, so a click anywhere in it opens the map panel. */
+@media (min-width: 64rem) {
+	.reader-map {
+		position: relative;
+		display: flex;
+		width: 44px;
+		flex: none;
+		align-self: stretch;
+		flex-direction: column;
+		align-items: center;
+	}
+}
+
+/* The dots stay in view as the stream scrolls. */
+.reader-map-track {
+	position: sticky;
+	/* Sticky insets are measured inside the viewport's padding, which already clears the toolbar. */
+	top: 0;
+	z-index: 1;
+	display: flex;
+	width: 100%;
+	flex-direction: column;
+	align-items: center;
+	/* Never taller than the viewport (the component sets the height it has): a long thread's dots draw closer. */
+	overflow: hidden;
+	padding-top: 96px;
+	padding-bottom: 16px;
+	pointer-events: none;
+}
+
+.reader-map-dot {
+	--dot-size: 6px;
+	--dot-read: var(--map-dot-158);
+	--dot-new: var(--person-dot-158);
+	--dot-ring: var(--map-dot-158-ring);
+	display: flex;
+	width: 44px;
+	height: calc(var(--dot-size) + 6px);
+	/* Dots give up their spacing, down to 2px apart, before the column outgrows the viewport. */
+	min-height: 2px;
+	flex: 0 1 auto;
+	align-items: center;
+	justify-content: center;
+	border: 0;
+	background: transparent;
+	padding: 0;
+	cursor: pointer;
+	pointer-events: auto;
+}
+
+.reader-map-dot > span {
+	width: var(--dot-size);
+	height: var(--dot-size);
+	border-radius: 999px;
+	background: var(--dot-read);
+}
+
+.reader-map-dot-first {
+	--dot-size: 8px;
+}
+
+.reader-map-dot-new {
+	--dot-size: 10px;
+}
+
+.reader-map-dot-new > span {
+	background: var(--dot-new);
+}
+
+.reader-map-dot[aria-current="true"] > span {
+	box-shadow: 0 0 0 3px var(--dot-ring);
+}
+
+.reader-map-dot:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+.reader-map-dot[data-hue="75"] {
+	--dot-read: var(--map-dot-75);
+	--dot-new: var(--person-dot-75);
+	--dot-ring: var(--map-dot-75-ring);
+}
+
+.reader-map-dot[data-hue="250"] {
+	--dot-read: var(--map-dot-250);
+	--dot-new: var(--person-dot-250);
+	--dot-ring: var(--map-dot-250-ring);
+}
+
+.reader-map-dot[data-hue="32"] {
+	--dot-read: var(--map-dot-32);
+	--dot-new: var(--person-dot-32);
+	--dot-ring: var(--map-dot-32-ring);
+}
+
+.reader-map-dot[data-hue="300"] {
+	--dot-read: var(--map-dot-300);
+	--dot-new: var(--person-dot-300);
+	--dot-ring: var(--map-dot-300-ring);
+}
+
+.reader-map-dot[data-hue="200"] {
+	--dot-read: var(--map-dot-200);
+	--dot-new: var(--person-dot-200);
+	--dot-ring: var(--map-dot-200-ring);
+}
+
+/* "You stopped here": a short green rule across the column of dots. */
+.reader-map-stopped {
+	width: 16px;
+	height: 1px;
+	flex: none;
+	/* 8px from the dots on each side, with the 3px each dot keeps around itself. */
+	margin-block: 5px;
+	background: var(--cta-icon);
+}
+
+/* The column itself opens the map panel; the dots above it take their own clicks. */
+.reader-map-open {
+	position: absolute;
+	inset: 0;
+	border: 0;
+	background: transparent;
+	padding: 0;
+	font-size: 0;
+	color: transparent;
+	cursor: pointer;
+}
+
+.reader-map-open:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: -2px;
+	border-radius: var(--radius);
+}
+
+/* Where the thread map panel docks: the pane below its toolbar; only the panel takes clicks. */
+.reader-map-dock {
+	position: absolute;
+	inset: var(--toolbar-height) 0 0;
+	z-index: 30;
+	pointer-events: none;
+}
+
+.reader-map-dock > * {
+	pointer-events: auto;
+}
+
+/* With the map docked, the stream and its dots keep clear of the panel: its 380px and the region gutter on each side. */
+.reader[data-map-docked] .reader-layout {
+	padding-right: calc(380px + 2rem);
+}
+
+/* The reply card, pinned under the stream while it scrolls; phones use the bottom reply bar. */
+.reader-reply-dock {
+	display: none;
+}
+
+@media (min-width: 48rem) {
+	.reader-reply-dock {
+		position: sticky;
+		bottom: 0;
+		z-index: 25; /* .scroll-area-sticky: over the area's bottom fade */
+		display: block;
+		margin-top: auto;
+		background: var(--background);
+		padding: 12px 0 16px;
+	}
+}
+
+.reader-reply-card {
+	display: flex;
+	flex-direction: column;
+	gap: 8px;
+	border: 1px solid var(--cta-line);
+	border-radius: var(--glass-radius);
+	background: var(--card);
+	padding: 12px 14px;
+	box-shadow: var(--reader-reply-shadow);
+}
+
+.reader-reply-head {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	font-size: 13px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-only {
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 0;
+	font-size: 12px;
+	font-weight: 500;
+	color: var(--cta-icon);
+	cursor: pointer;
+	white-space: nowrap;
+}
+
+.reader-reply-row {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+}
+
+.reader-reply-field {
+	flex: 1;
+	min-width: 0;
+	border: 0;
+	border-radius: var(--radius);
+	background: transparent;
+	padding: 6px 0;
+	text-align: left;
+	font-size: 15px;
+	color: var(--muted-foreground);
+	cursor: text;
+}
+
+.reader-reply-hint {
+	font-size: 11px;
+	color: var(--muted-foreground);
+}
+
+.reader-reply-send {
+	display: inline-flex;
+	height: 32px;
+	align-items: center;
+	gap: 6px;
+	border: 0;
+	border-radius: var(--radius);
+	background: var(--primary);
+	padding: 0 14px;
+	font-size: 13px;
+	font-weight: 600;
+	color: var(--primary-foreground);
+	cursor: pointer;
+}
+
+.reader-reply-send:hover {
+	filter: brightness(1.05);
+}
+
+.reader-reply-only:focus-visible,
+.reader-reply-field:focus-visible,
+.reader-reply-send:focus-visible {
+	outline: 2px solid var(--ring);
+	outline-offset: 2px;
+}
+
+/* The phone's "2 more new" pill floats 20px above the bottom bar while new messages are below. */
+.reader-jump {
+	position: sticky;
+	/* Sticky insets are measured inside the viewport's padding, which already clears the bottom bar. */
+	bottom: 20px;
+	z-index: 20;
+	display: flex;
+	height: 0;
+	align-items: flex-end;
+	justify-content: center;
+	pointer-events: none;
+}
+
+.reader-jump > * {
+	pointer-events: auto;
 }
 
 /*
@@ -730,13 +1702,13 @@
 
 /*
  * One row definition for every mail list (folders, drafts, search). Default is
- * three lines: sender and date, subject, snippet. Density variants live in the
+ * three lines: sender and time, subject, snippet, and under them a line of
+ * signals when a row has more than one. Density variants live in the
  * fine-pointer block below, so touch and mobile layouts always keep this row.
  * The row's own 16px inline padding (`px-4`) is the left edge shared with the
- * list title, so the unread dot's track has no width and the dot sits in that
- * padding; cells are spaced by their own margins instead of a column gap.
- * Subject and snippet span every column from the first, so they start at that
- * same 16px edge and never behind the star's track.
+ * list title and the day-group headings; cells are spaced by their own margins
+ * instead of a column gap. The lead track holds only the selection checkbox,
+ * so at rest it has no width and every line starts at that 16px edge.
  */
 .thread-row {
 	position: relative;
@@ -757,18 +1729,44 @@
 	contain-intrinsic-size: auto 76px;
 }
 
+/* Tones, under hover and selection: a send that failed, a conversation asking you, a muted one. */
+.thread-row:where(:has(> .thread-row-sender[data-tone="failed"])) {
+	--row-tone: var(--list-failed);
+	background: var(--row-tone);
+}
+
+.thread-row:where(:has(> .thread-row-sender[data-tone="asks"])) {
+	--row-tone: var(--list-asks);
+	background: var(--row-tone);
+}
+
+.thread-row:where(:has(> .thread-row-sender[data-tone="muted"])) {
+	opacity: 0.85;
+}
+
 .thread-row:hover {
 	background: color-mix(in oklch, var(--muted), transparent 35%);
 }
 
+/* A toned row keeps its ground under the pointer, a step deeper: a failed send stays red. */
+.thread-row:where(
+	:has(> .thread-row-sender[data-tone="failed"]),
+	:has(> .thread-row-sender[data-tone="asks"])
+):hover {
+	background: color-mix(in oklch, var(--row-tone), var(--foreground) 4%);
+}
+
+/* The open conversation: a green tint inside a uniform 1px ring (never a rail), with no rule under it. */
 .thread-row[data-active="true"],
 .thread-row:has([data-active="true"]) {
-	background: var(--muted);
+	border-bottom-color: transparent;
+	background: var(--list-selected);
+	box-shadow: inset 0 0 0 1px var(--list-selected-line);
 }
 
 .thread-row[data-active="true"]:hover,
 .thread-row:has([data-active="true"]):hover {
-	background: var(--muted);
+	background: var(--list-selected);
 }
 
 .thread-row[data-nav-cursor="true"]:not([data-active="true"]):not(:has([data-active="true"])),
@@ -794,7 +1792,10 @@
 
 .thread-row-sender {
 	grid-area: who;
-	/* Clear of the star's 32px hover box, which reaches 8px past its 16px icon. */
+}
+
+/* Clear of the checkbox's 44px target, which reaches 12px past its 16px box. */
+.thread-row-lead + .thread-row-sender {
 	margin-left: 0.75rem;
 }
 
@@ -804,6 +1805,32 @@
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+/* What a row loads once it is on screen watches this box; it takes no grid cell. */
+.thread-row-probe {
+	position: absolute;
+	inset: 0;
+	pointer-events: none;
+}
+
+/*
+ * The star sits before the time. A starred row shows it; otherwise it appears
+ * while the pointer is over the row or focus is inside it, and always where
+ * there is no hover to reveal it.
+ */
+.thread-row-star:not([data-starred]) {
+	opacity: 0;
+}
+
+.thread-row:where(:hover, :focus-within) .thread-row-star {
+	opacity: 1;
+}
+
+@media (any-pointer: coarse) {
+	.thread-row-star:not([data-starred]) {
+		opacity: 1;
+	}
 }
 
 .thread-row-text {
@@ -832,12 +1859,178 @@
 	grid-column: 1 / -1;
 }
 
+/* Without a signal at its end the snippet runs the full width, as the subject does (board 02). */
+.thread-row-text:not([data-end-signal]) .thread-row-snippet {
+	grid-row: 2;
+	grid-column: 1 / -1;
+}
+
+/* Rows set their lines at the type's own height, as board 02 does, so a day's rows fit the pane. */
+.thread-row-sender,
+.thread-row-subject,
+.thread-row-snippet {
+	line-height: normal;
+}
+
+/* The first line of a message with no subject, standing in for one. */
+.thread-row-subject[data-stand-in] {
+	font-style: italic;
+}
+
+.thread-row-subject-quiet {
+	color: color-mix(in oklch, var(--muted-foreground) 75%, var(--foreground));
+}
+
+/* A muted list's bell, 6px before "eng-all@ · 31 people". */
+.thread-row-list-who {
+	gap: 0.375rem;
+}
+
+/* "You:" after a reply glyph: the owner wrote last. */
+.thread-row-snippet-icon {
+	display: inline-block;
+	margin-right: 0.375rem;
+	vertical-align: -0.125rem;
+}
+
+/* A line that says more than the snippet (an invitation, a failed send) takes its place. */
+.thread-row-snippet[data-replaced] {
+	display: none;
+}
+
+.thread-row-detail {
+	grid-row: 2;
+	grid-column: 1 / -1;
+	min-width: 0;
+}
+
 .thread-row-labels {
 	grid-row: 2;
 	grid-column: 2;
 	display: flex;
 	align-items: center;
 	gap: 0.5rem;
+}
+
+/* An invitation or a failed send fills the line a lone signal would end. */
+.thread-row-detail ~ .thread-row-labels {
+	display: none;
+}
+
+/* Two or more signals get a line of their own; one sits at the end of the snippet. */
+.thread-row-signals {
+	grid-column: 1 / -1;
+	display: flex;
+	align-items: center;
+	gap: 0.375rem;
+	min-width: 0;
+	padding-top: 0.25rem;
+}
+
+.thread-row-signal-collapsed {
+	display: none;
+}
+
+/* A signal pill: 20px, a glyph and a word, fully round like any count. */
+.thread-signal {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	gap: 0.25rem;
+	height: 1.25rem;
+	max-width: 100%;
+	padding: 0 0.4375rem;
+	border-radius: 9999px;
+	font-size: 0.6875rem;
+	font-weight: 600;
+	line-height: 1;
+	white-space: nowrap;
+}
+
+.thread-signal[data-signal="file"] {
+	flex: 0 1 auto;
+	min-width: 0;
+	overflow: hidden;
+}
+
+/* A file or invite pill reads in the quiet text colour; a count pill (a bundle's) in the control colour. */
+.thread-signal-quiet {
+	color: var(--quiet-fg);
+}
+
+.thread-signal-count {
+	color: var(--control-fg);
+}
+
+/* The small outlined buttons inside a row: Accept, Decline, Edit and resend. */
+.thread-row-mini {
+	height: 1.5rem;
+	padding: 0 0.5625rem;
+}
+
+.thread-row-invite {
+	padding-top: 0.25rem;
+}
+
+/*
+ * The time of an invite and "Not sent. The address bounced." never shorten to
+ * fit their buttons: where the pane is too narrow for both (the 360px list
+ * beside the reader), the buttons move under the words instead.
+ */
+.thread-row-detail-text {
+	flex: 1 0 auto;
+	min-width: 0;
+	max-width: 100%;
+}
+
+.thread-row-invite-when {
+	gap: 0.375rem;
+	color: color-mix(in oklch, var(--muted-foreground) 60%, var(--foreground));
+}
+
+.thread-row-failed {
+	color: var(--danger-soft-fg);
+}
+
+/* Day groups ("Today", "Yesterday", "This week", then months) anchor the list. */
+.thread-list-group {
+	margin: 0;
+	padding: 1rem 1rem 0.375rem;
+}
+
+/* A bundle row: an icon tile beside the kind, its count and who sent it. */
+.thread-bundle {
+	display: flex;
+	align-items: center;
+	gap: 0.75rem;
+}
+
+.thread-bundle-tile {
+	display: inline-flex;
+	flex: none;
+	align-items: center;
+	justify-content: center;
+	width: 2rem;
+	height: 2rem;
+	border-radius: var(--radius);
+}
+
+.thread-bundle-text {
+	display: flex;
+	flex: 1;
+	flex-direction: column;
+	gap: 0.125rem;
+	min-width: 0;
+}
+
+/* Who sent it, at the font's own line height as board 02 draws it (a 66px row). */
+.thread-bundle-line {
+	line-height: normal;
+}
+
+/* Conversations listed under an open bundle start where its title does. */
+.thread-row[data-bundled="true"] {
+	padding-left: 3.75rem;
 }
 
 .list-density-menu {
@@ -877,11 +2070,11 @@
 	}
 
 	/*
-	 * One line needs more room than the 22rem vertical-split list. The wider
-	 * list lives here, not in the layout classes, so a Condensed preference
-	 * changes nothing where Condensed rows do not apply. A width the person
-	 * dragged to still wins over either default, and the reader keeps its
-	 * 360px, as in the layout classes.
+	 * One line needs more room than the 22.5rem (360px, board 01)
+	 * vertical-split list. The wider list lives here, not in the layout
+	 * classes, so a Condensed preference changes nothing where Condensed rows
+	 * do not apply. A width the person dragged to still wins over either
+	 * default, and the reader keeps its 360px, as in the layout classes.
 	 */
 	@media (min-width: 80rem) {
 		.mail-list-vertical[data-density="condensed"] {
@@ -903,14 +2096,19 @@
 		margin-left: 0.5rem;
 	}
 
+	/*
+	 * Subject, then snippet, on one line. The snippet needs 6rem to say
+	 * anything: with less room it wraps onto a second line the box hides, so a
+	 * long subject never leaves a lone " · …" behind it.
+	 */
 	[data-density="compact"] .thread-row-summary,
 	[data-density="condensed"] .thread-row-summary {
-		display: block;
+		display: flex;
 		flex: 1;
+		flex-wrap: wrap;
 		min-width: 0;
+		height: 1.25rem;
 		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
 		font-size: 0.8125rem;
 		line-height: 1.25rem;
 	}
@@ -919,15 +2117,83 @@
 	[data-density="compact"] .thread-row-snippet,
 	[data-density="condensed"] .thread-row-subject,
 	[data-density="condensed"] .thread-row-snippet {
-		display: inline;
 		font-size: inherit;
 		line-height: inherit;
+	}
+
+	[data-density="compact"] .thread-row-subject,
+	[data-density="condensed"] .thread-row-subject {
+		flex: 0 1 auto;
+		min-width: 0;
+	}
+
+	[data-density="compact"] .thread-row-snippet,
+	[data-density="condensed"] .thread-row-snippet {
+		flex: 1 1 6rem;
+		min-width: 6rem;
 	}
 
 	[data-density="compact"] .thread-row-snippet:not(:empty)::before,
 	[data-density="condensed"] .thread-row-snippet:not(:empty)::before {
 		content: "  ·  ";
 		white-space: pre;
+	}
+
+	/* One or two lines keep the snippet and only the first signal. */
+	[data-density="compact"] .thread-row-snippet[data-replaced],
+	[data-density="condensed"] .thread-row-snippet[data-replaced] {
+		display: block;
+	}
+
+	[data-density="compact"] .thread-row-detail,
+	[data-density="condensed"] .thread-row-detail,
+	[data-density="compact"] .thread-row-signals,
+	[data-density="condensed"] .thread-row-signals {
+		display: none;
+	}
+
+	[data-density="compact"] .thread-row-signal-collapsed,
+	[data-density="condensed"] .thread-row-signal-collapsed {
+		display: contents;
+	}
+
+	[data-density="compact"] .thread-row-detail ~ .thread-row-labels,
+	[data-density="condensed"] .thread-row-detail ~ .thread-row-labels {
+		display: flex;
+	}
+
+	[data-density="condensed"] .thread-bundle-tile {
+		display: none;
+	}
+
+	/* A Condensed bundle lines up with its neighbours: the title (and count) in the
+	 * sender column at the sender's size, who sent it in the subject column. */
+	[data-density="condensed"] .thread-bundle {
+		display: grid;
+		/* Cells space themselves, as a conversation row's do; the flex gap would push both columns right. */
+		column-gap: 0;
+	}
+
+	[data-density="condensed"] .thread-bundle-text {
+		display: contents;
+	}
+
+	[data-density="condensed"] .thread-bundle-title {
+		grid-area: who;
+		align-items: center;
+	}
+
+	[data-density="condensed"] .thread-bundle-name {
+		font-size: 0.8125rem;
+	}
+
+	[data-density="condensed"] .thread-bundle-line {
+		grid-area: text;
+		margin-left: 0.5rem;
+	}
+
+	[data-density="condensed"] .thread-row[data-bundled="true"] {
+		padding-left: 2rem;
 	}
 
 	/*
@@ -1175,7 +2441,10 @@
 	inset: auto;
 	width: 100%;
 	max-width: none;
-	height: min(24rem, 60dvh);
+	/* At least this tall; a long recipient list and the reply-all guard grow it
+	 * instead of squeezing the message to nothing. */
+	height: auto;
+	min-height: min(24rem, 60dvh);
 	max-height: none;
 	border: 1px solid var(--border);
 	border-radius: var(--radius);
@@ -1696,6 +2965,15 @@
 		/* `--under-mobile-bar-gap` carries the element's own bottom padding, which this replaces. */
 		padding-bottom: calc(var(--mobile-bar-inset) + var(--under-mobile-bar-gap, 0px));
 		scroll-padding-bottom: var(--mobile-bar-inset);
+	}
+
+	/* The phone thread's reply bar (design.md "Reading", phone) is taller than the
+	 * tab bar: its 76px row and hairline, or the tab bar with the home indicator. */
+	.under-mobile-reply-bar {
+		--mobile-bar-inset: max(
+			calc(4.75rem + 1px),
+			calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom))
+		);
 	}
 }
 

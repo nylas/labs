@@ -57,10 +57,12 @@ function makeMailbox() {
 		listThreads: vi.fn(),
 		getThread: vi.fn(),
 		getMessage: vi.fn(),
+		getRawMime: vi.fn(),
 		listMessages: vi.fn(),
 		updateThread: vi.fn(),
 		listDrafts: vi.fn(),
 		send: vi.fn(),
+		cancelScheduledMessage: vi.fn(),
 		deleteDraft: vi.fn(),
 		updateDraft: vi.fn(),
 		createDraft: vi.fn(),
@@ -432,6 +434,263 @@ describe('getThreadListUnsubscribe', () => {
 			messageIds: [],
 		})
 	})
+
+	it('follows the cursor through every page of a long thread and lists each bulk message once', async () => {
+		resolveMailbox()
+		const bulk = (id: string) => ({
+			id,
+			headers: [{ name: 'List-Unsubscribe', value: '<https://u.example>' }],
+		})
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [bulk('page-1'), { id: 'person' }], next_cursor: 'cursor-2' })
+			// A message that moved between pages mid-walk is reported once.
+			.mockResolvedValueOnce({ data: [bulk('page-1'), bulk('page-2')], next_cursor: null })
+		const result = await fns.getThreadListUnsubscribe.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(2)
+		expect(mailbox.listMessages).toHaveBeenLastCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+			page_token: 'cursor-2',
+		})
+		expect(result).toEqual({ messageIds: ['page-1', 'page-2'] })
+	})
+})
+
+describe('getThreadHeaderFacts', () => {
+	it('validates the thread id', () => {
+		expect(fns.getThreadHeaderFacts.validator({ threadId: 'thread-1' })).toEqual({ threadId: 'thread-1' })
+		expect(() => fns.getThreadHeaderFacts.validator({ threadId: 'bad\nid' })).toThrow()
+	})
+
+	it('asks for headers once per thread and returns only derived facts, never a raw header value', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValue({
+			data: [
+				{
+					id: 'alan',
+					from: [{ email: 'alan@bletchley.dev' }],
+					headers: [
+						{ name: 'Received', value: 'from mail.bletchley.dev by mx1.example.net with ESMTPS id 1' },
+						{
+							name: 'Authentication-Results',
+							value: 'mx1.example.net; dmarc=pass header.from=bletchley.dev',
+						},
+						{ name: 'Date', value: 'Wed, 14 Oct 2026 07:12:00 -0700' },
+						{ name: 'X-Secret', value: 'token=abc123' },
+					],
+				},
+				{
+					id: 'grace',
+					from: [{ email: 'grace.hopper@vercel.com' }],
+					headers: [{ name: 'Reply-To', value: 'Private Name <grace.personal@fastmail.com>' }],
+				},
+				{
+					id: 'parsed-reply-to',
+					from: [{ email: 'help@bank.com' }],
+					reply_to: [{ name: 'Support <help@bank.com>', email: 'collect@evil.example' }],
+					headers: [{ name: 'Reply-To', value: '"Support <help@bank.com>" <collect@evil.example>' }],
+				},
+				{
+					id: 'own',
+					from: [{ email: 'Ada@OwnMail.com' }],
+					reply_to: [{ email: 'grace.hopper@vercel.com' }],
+				},
+				{
+					id: 'list',
+					from: 'not-a-list',
+					headers: [
+						{ name: 'List-Id', value: 'Eng <eng-all.vercel.com>' },
+						{ name: 'List-Unsubscribe', value: '<https://lists.example/u?token=secret>' },
+					],
+				},
+				{ id: '__proto__', from: [{ email: 7 }] },
+				{ id: 'bad\nid', headers: [] },
+				{ id: 42 },
+				null,
+			],
+		})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+		})
+		expect(Object.keys(result.byMessage)).toEqual([
+			'alan',
+			'grace',
+			'parsed-reply-to',
+			'own',
+			'list',
+			'__proto__',
+		])
+		expect(result.byMessage.alan).toEqual({
+			verified: true,
+			authFailed: false,
+			listUnsubscribe: false,
+			dateOffsetMinutes: -420,
+		})
+		expect(result.byMessage.grace?.replyTo).toBe('grace.personal@fastmail.com')
+		expect(result.byMessage['parsed-reply-to']?.replyTo).toBe('collect@evil.example')
+		// Your own sent mail lists its recipients as Reply-To; that is no redirection.
+		expect(result.byMessage.own?.replyTo).toBeUndefined()
+		expect(result.byMessage.list).toMatchObject({
+			listId: 'eng-all.vercel.com',
+			listUnsubscribe: true,
+			unsubscribeUrl: 'https://lists.example/u?token=secret',
+		})
+		expect(Object.getPrototypeOf(result.byMessage)).toBe(Object.prototype)
+		const serialized = JSON.stringify(result)
+		expect(serialized).not.toContain('abc123')
+		expect(serialized).not.toContain('Private Name')
+	})
+
+	it('says how many people a list reaches only in the mock app', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValue({ data: [{ id: 'm1', from: [{ email: 'a@b.co' }], headers: [] }] })
+		expect((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).listSizes).toBeUndefined()
+		usingDevMocksMock.mockResolvedValue(true)
+		expect((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).listSizes).toEqual({
+			'pm-leads@vercel.com': 12,
+		})
+	})
+
+	it('rejects, without provider detail, when the lookup fails or returns something unexpected', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockRejectedValue(new NylasApiError('fields is not supported', 400))
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
+
+		mailbox.listMessages.mockResolvedValue({ data: 'unexpected' })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
+	})
+
+	it('merges facts from every page of a long thread', async () => {
+		resolveMailbox()
+		const listMessage = (id: string, list: string) => ({
+			id,
+			from: [{ email: 'news@vercel.com' }],
+			headers: [{ name: 'List-Id', value: `<${list}>` }],
+		})
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [listMessage('m1', 'one.vercel.com')], next_cursor: 'cursor-2' })
+			.mockResolvedValueOnce({ data: [listMessage('m2', 'two.vercel.com')], next_cursor: 'cursor-3' })
+			// The newest copy of a message that reappears on a later page wins.
+			.mockResolvedValueOnce({
+				data: [listMessage('m1', 'moved.vercel.com'), listMessage('m3', 'three.vercel.com')],
+			})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages.mock.calls.map(([query]) => query)).toEqual([
+			{ thread_id: 't1', fields: 'include_headers', limit: 50 },
+			{ thread_id: 't1', fields: 'include_headers', limit: 50, page_token: 'cursor-2' },
+			{ thread_id: 't1', fields: 'include_headers', limit: 50, page_token: 'cursor-3' },
+		])
+		expect(Object.keys(result.byMessage)).toEqual(['m1', 'm2', 'm3'])
+		expect(result.byMessage.m1?.listId).toBe('moved.vercel.com')
+		expect(result.byMessage.m2?.listId).toBe('two.vercel.com')
+		expect(result.byMessage.m3?.listId).toBe('three.vercel.com')
+	})
+
+	it('reads at most four pages (200 messages) of one thread', async () => {
+		resolveMailbox()
+		let page = 0
+		mailbox.listMessages.mockImplementation(async () => {
+			page += 1
+			return {
+				data: Array.from({ length: 50 }, (_, index) => ({ id: `p${page}-${index}` })),
+				next_cursor: `cursor-${page + 1}`,
+			}
+		})
+		const result = await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(4)
+		expect(mailbox.listMessages).toHaveBeenLastCalledWith({
+			thread_id: 't1',
+			fields: 'include_headers',
+			limit: 50,
+			page_token: 'cursor-4',
+		})
+		expect(Object.keys(result.byMessage)).toHaveLength(200)
+		expect(result.byMessage['p5-0']).toBeUndefined()
+	})
+
+	it('stops at an unusable or repeated cursor', async () => {
+		resolveMailbox()
+		mailbox.listMessages.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'bad\ncursor' })
+		expect(
+			Object.keys((await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).byMessage),
+		).toEqual(['m1'])
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(1)
+
+		mailbox.listMessages.mockReset()
+		mailbox.listMessages.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 42 })
+		await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(1)
+
+		mailbox.listMessages.mockReset()
+		mailbox.listMessages.mockResolvedValue({ data: [{ id: 'm1' }], next_cursor: 'same' })
+		await fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })
+		// The second page hands back the cursor it was read with; the walk ends there.
+		expect(mailbox.listMessages).toHaveBeenCalledTimes(2)
+	})
+
+	it('rejects when a later page fails, rather than answering facts for part of the thread', async () => {
+		resolveMailbox()
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
+			.mockRejectedValueOnce(new NylasApiError('rate limited', 429))
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
+
+		mailbox.listMessages
+			.mockResolvedValueOnce({ data: [{ id: 'm1' }], next_cursor: 'cursor-2' })
+			.mockResolvedValueOnce({ data: 'unexpected' })
+		await expect(fns.getThreadHeaderFacts.handler({ data: { threadId: 't1' } })).rejects.toThrow(
+			'Sender checks could not be looked up.',
+		)
+	})
+})
+
+describe('getMessageRawHeaders', () => {
+	const encode = (text: string) => btoa(text).replaceAll('+', '-').replaceAll('/', '_').replace(/=+$/, '')
+
+	it('validates the message id', () => {
+		expect(fns.getMessageRawHeaders.validator({ messageId: 'm1' })).toEqual({ messageId: 'm1' })
+		expect(() => fns.getMessageRawHeaders.validator({ messageId: '' })).toThrow('Invalid message')
+	})
+
+	it('returns only the header block of the raw message', async () => {
+		resolveMailbox()
+		mailbox.getRawMime.mockResolvedValue({
+			data: { id: 'm1', raw_mime: encode('From: a@b.co\r\nSubject: Hi\r\n\r\nSecret body') },
+		})
+		const result = await fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })
+
+		expect(mailbox.getRawMime).toHaveBeenCalledWith('m1')
+		expect(result).toEqual({ text: 'From: a@b.co\r\nSubject: Hi' })
+	})
+
+	it('maps provider failures and unusable payloads to user-safe errors', async () => {
+		resolveMailbox()
+		mailbox.getRawMime.mockRejectedValueOnce(new NylasApiError('gone', 404))
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(/Not found/)
+
+		mailbox.getRawMime.mockResolvedValueOnce(null)
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(
+			'Raw headers are not available for this message.',
+		)
+		mailbox.getRawMime.mockResolvedValueOnce({ data: { raw_mime: '***' } })
+		await expect(fns.getMessageRawHeaders.handler({ data: { messageId: 'm1' } })).rejects.toThrow(
+			'Raw headers are not available',
+		)
+	})
 })
 
 describe('getThreadMessages', () => {
@@ -468,6 +727,67 @@ describe('getThreadMessages', () => {
 		mailbox.getMessage.mockImplementation((id: string) => Promise.resolve({ data: { id } }))
 		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
 		expect(res.messages).toHaveLength(2)
+	})
+
+	it('shows the messages that loaded and names the ones that failed', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m1', 'gone', 'm2', 'broken'] } })
+		mailbox.getMessage.mockImplementation((id: string) =>
+			id === 'gone' || id === 'broken'
+				? Promise.reject(new NylasApiError('gone', id === 'gone' ? 404 : 500))
+				: Promise.resolve({ data: { id, date: id === 'm1' ? 1 : 2 } }),
+		)
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'm2'])
+		expect(res.failedMessageIds).toEqual(['gone', 'broken'])
+	})
+
+	it('places your unsent replies in the thread with its messages, leaving out drafts it cannot read', async () => {
+		resolveMailbox({ displayName: 'Ada' })
+		mailbox.getThread.mockResolvedValue({
+			data: { message_ids: ['m1', 'm2'], draft_ids: ['d1', 'd1', 'gone', 7, 'bad\nid'] },
+		})
+		mailbox.getMessage.mockImplementation((id: string) =>
+			Promise.resolve({ data: { id, date: id === 'm1' ? 1 : 3 } }),
+		)
+		mailbox.getDraft.mockImplementation((id: string) =>
+			id === 'gone'
+				? Promise.reject(new NylasApiError('gone', 404))
+				: Promise.resolve({
+						data: { id, grant_id: 'g', thread_id: 't1', date: 2, to: [{ email: 'mary@x.com' }] },
+					}),
+		)
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+
+		expect(mailbox.getDraft).toHaveBeenCalledTimes(2)
+		expect(res.messages.map((m) => m.id)).toEqual(['m1', 'd1', 'm2'])
+		expect(res.messages[1]).toMatchObject({
+			from: [{ email: 'ada@ownmail.com', name: 'Ada' }],
+			folders: ['drafts'],
+			unread: false,
+		})
+		expect(res.ownmailDraftMessageIds).toEqual(['d1'])
+	})
+
+	it('reads no drafts for a thread whose draft list is not a list', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['m1'], draft_ids: 'd1' } })
+		mailbox.getMessage.mockResolvedValue({ data: { id: 'm1' } })
+		const res = await fns.getThreadMessages.handler({ data: { threadId: 't1' } })
+		expect(mailbox.getDraft).not.toHaveBeenCalled()
+		expect(res).not.toHaveProperty('ownmailDraftMessageIds')
+	})
+
+	it('fails the whole read only when no message could be loaded', async () => {
+		resolveMailbox()
+		mailbox.getThread.mockResolvedValue({ data: { message_ids: ['a', 'b'] } })
+		mailbox.getMessage.mockRejectedValue(new NylasApiError('server', 500))
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow('server')
+
+		mailbox.getMessage.mockRejectedValue(new NylasApiError('gone', 404))
+		mailbox.listDrafts.mockResolvedValue({ data: [] })
+		await expect(fns.getThreadMessages.handler({ data: { threadId: 't1' } })).rejects.toThrow(/Not found/)
 	})
 
 	it('supports an explicit read mutation with a canonical thread and folder receipt', async () => {
@@ -829,6 +1149,200 @@ describe('getDraft', () => {
 	})
 })
 
+describe('copied recipients', () => {
+	it('carries a draft’s Cc and Bcc through a save and a send', async () => {
+		const saved = fns.saveDraft.validator({
+			draftId: 'd1',
+			to: 'a@b.com',
+			cc: 'c@d.com',
+			bcc: 'e@f.com, g@h.com',
+			subject: 's',
+			body: 'b',
+		})
+		expect(saved).toMatchObject({ ccList: ['c@d.com'], bccList: ['e@f.com', 'g@h.com'] })
+		resolveMailbox()
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd1' } })
+		await fns.saveDraft.handler({ data: saved })
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', {
+			to: [{ email: 'a@b.com' }],
+			cc: [{ email: 'c@d.com' }],
+			bcc: [{ email: 'e@f.com' }, { email: 'g@h.com' }],
+			subject: 's',
+			body: 'b',
+		})
+		const sending = fns.sendDraft.validator({
+			draftId: 'd1',
+			to: 'a@b.com',
+			cc: 'c@d.com',
+			subject: 's',
+			body: 'b',
+		})
+		await fns.sendDraft.handler({ data: sending })
+		expect(mailbox.updateDraft).toHaveBeenLastCalledWith('d1', {
+			to: [{ email: 'a@b.com' }],
+			cc: [{ email: 'c@d.com' }],
+			subject: 's',
+			body: 'b',
+		})
+	})
+
+	it('leaves out empty lists and refuses ones that are not text or not addresses', () => {
+		expect(
+			fns.saveDraft.validator({ to: 'a@b.com', cc: ' ', bcc: '', subject: 's', body: 'b' }),
+		).not.toHaveProperty('ccList')
+		expect(() => fns.saveDraft.validator({ to: 'a@b.com', cc: 5, subject: 's', body: 'b' } as never)).toThrow(
+			'Invalid Cc',
+		)
+		expect(() =>
+			fns.sendDraft.validator({ draftId: 'd1', to: 'a@b.com', bcc: [], subject: 's', body: 'b' } as never),
+		).toThrow('Invalid Bcc')
+		expect(() =>
+			fns.saveDraft.validator({ to: 'a@b.com', cc: 'not an address', subject: 's', body: 'b' }),
+		).toThrow()
+	})
+})
+
+describe('kept draft attachments', () => {
+	const file = (bytes: number[]) => new Response(new Uint8Array(bytes))
+	const notes = { filename: 'notes.txt', content_type: 'text/plain', content: 'BAUG' }
+
+	it('names the files a draft keeps, and refuses a list that is not one', () => {
+		expect(
+			fns.saveDraft.validator({
+				draftId: 'd1',
+				to: 'a@b.com',
+				subject: 's',
+				body: 'b',
+				keepAttachments: ['plan.pdf'],
+			}),
+		).toMatchObject({ keepAttachments: ['plan.pdf'] })
+		expect(
+			fns.saveDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b', keepAttachments: [] })
+				.keepAttachments,
+		).toBeUndefined()
+		for (const keepAttachments of ['plan.pdf', [5], [''], ['x'.repeat(256)], Array(11).fill('a.pdf')]) {
+			expect(() =>
+				fns.saveDraft.validator({ to: 'a@b.com', subject: 's', body: 'b', keepAttachments } as never),
+			).toThrow('Invalid attachments')
+		}
+	})
+
+	it('keeps a cancelled scheduled message’s files when its draft is edited and saved', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({
+			data: {
+				id: 'd-safe',
+				attachments: [
+					{ id: 'a1', filename: 'plan.pdf', content_type: 'application/pdf' },
+					{ id: 'a2', filename: 'old.txt', content_type: 'text/plain' },
+					{ id: 'a3', filename: ' sync-flow.png ' },
+					// A file the provider names nothing is the one the composer calls "attachment".
+					{ id: 'a4', content_type: 'text/calendar' },
+				],
+			},
+		})
+		mailbox.downloadAttachment.mockImplementation(async (id: string) =>
+			file(id === 'a1' ? [1, 2, 3] : [7, 8, 9]),
+		)
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd-safe' } })
+		await fns.saveDraft.handler({
+			data: {
+				draftId: 'd-safe',
+				toList: ['grace@example.com'],
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Edited',
+				attachments: [notes],
+				keepAttachments: ['plan.pdf', 'sync-flow.png', 'attachment'],
+			},
+		})
+		expect(mailbox.getDraft).toHaveBeenCalledWith('d-safe')
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'd-safe')
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a3', 'd-safe')
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d-safe', {
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Q3 offsite agenda',
+			body: 'Edited',
+			attachments: [
+				{ filename: 'plan.pdf', content_type: 'application/pdf', content: 'AQID' },
+				{ filename: 'sync-flow.png', content_type: 'application/octet-stream', content: 'BwgJ' },
+				{ filename: 'attachment', content_type: 'text/calendar', content: 'BwgJ' },
+				notes,
+			],
+		})
+	})
+
+	it('keeps an Edit and resend draft’s files through later saves without doubling the composer’s', async () => {
+		resolveMailbox()
+		// The first save already put the composer's file on the draft, under new ids.
+		mailbox.getDraft.mockResolvedValue({
+			data: {
+				id: 'd-resend',
+				attachments: [
+					{ id: 'b1', filename: 'statement.pdf', content_type: 'application/pdf' },
+					{ id: 'b2', filename: 'notes.txt', content_type: 'text/plain' },
+				],
+			},
+		})
+		mailbox.downloadAttachment.mockImplementation(async () => file([1, 2, 3]))
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		const save = (attachments?: (typeof notes)[]) =>
+			fns.saveDraft.handler({
+				data: {
+					draftId: 'd-resend',
+					toList: ['billing@meridianbank.com'],
+					subject: 'Statement',
+					body: 'Resending',
+					...(attachments ? { attachments } : {}),
+					keepAttachments: ['statement.pdf'],
+				},
+			})
+		const statement = { filename: 'statement.pdf', content_type: 'application/pdf', content: 'AQID' }
+		await save([notes])
+		expect(mailbox.updateDraft).toHaveBeenLastCalledWith(
+			'd-resend',
+			expect.objectContaining({ attachments: [statement, notes] }),
+		)
+		// The composer's file removed: only the kept file stays.
+		await save()
+		expect(mailbox.updateDraft).toHaveBeenLastCalledWith(
+			'd-resend',
+			expect.objectContaining({ attachments: [statement] }),
+		)
+		expect(mailbox.downloadAttachment).not.toHaveBeenCalledWith('b2', 'd-resend')
+	})
+
+	it('saves only the composer’s files when the kept ones are gone, and never reads a new draft', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd1' } })
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd2' } })
+		const data = { toList: ['a@b.com'], subject: 's', body: 'b', keepAttachments: ['plan.pdf'] }
+		await fns.saveDraft.handler({ data: { ...data, draftId: 'd1' } })
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', {
+			to: [{ email: 'a@b.com' }],
+			subject: 's',
+			body: 'b',
+		})
+		await fns.saveDraft.handler({ data })
+		expect(mailbox.getDraft).toHaveBeenCalledTimes(1)
+		expect(mailbox.createDraft).toHaveBeenCalledWith({ to: [{ email: 'a@b.com' }], subject: 's', body: 'b' })
+	})
+
+	it('does not save over a draft whose kept file cannot be read', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({
+			data: { id: 'd1', attachments: [{ id: 'a1', filename: 'plan.pdf' }] },
+		})
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(
+			fns.saveDraft.handler({
+				data: { draftId: 'd1', toList: [], subject: 's', body: 'b', keepAttachments: ['plan.pdf'] },
+			}),
+		).rejects.toThrow(/Something went wrong/)
+		expect(mailbox.updateDraft).not.toHaveBeenCalled()
+	})
+})
+
 describe('sendDraft', () => {
 	it('validates the draft id', () => {
 		expect(fns.sendDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b' })).toMatchObject({
@@ -950,6 +1464,394 @@ describe('sendDraft', () => {
 		await expect(
 			fns.sendDraft.handler({ data: { draftId: 'd1', toList: ['a@b.com'], subject: 's', body: 'b' } }),
 		).rejects.toThrow(/Something went wrong/)
+	})
+})
+
+describe('scheduled sends', () => {
+	const scheduled = {
+		id: 'm2',
+		thread_id: 't1',
+		schedule_id: 'sched-1',
+		send_at: 2_000_000_000,
+		from: [{ email: 'ada@ownmail.com' }],
+		to: [{ email: 'grace@example.com' }],
+		subject: 'Re: Q3 offsite agenda',
+		body: '<p>Thanks</p>',
+	}
+
+	it('validates the message id', () => {
+		expect(fns.cancelScheduledSend.validator({ messageId: 'm2' })).toEqual({ messageId: 'm2' })
+		expect(() => fns.sendScheduledNow.validator({ messageId: '' })).toThrow('Invalid message')
+	})
+
+	const fullScheduled = {
+		...scheduled,
+		cc: [{ email: 'alan@example.com' }],
+		bcc: [{ email: 'katherine@example.com' }],
+		reply_to: [{ email: 'ada.personal@example.com' }],
+		attachments: [{ id: 'a1', filename: 'agenda.txt', content_type: 'text/plain' }],
+	}
+	const fullOutgoing = {
+		to: [{ email: 'grace@example.com' }],
+		cc: [{ email: 'alan@example.com' }],
+		bcc: [{ email: 'katherine@example.com' }],
+		reply_to: [{ email: 'ada.personal@example.com' }],
+		subject: 'Re: Q3 offsite agenda',
+		body: '<p>Thanks</p>',
+		attachments: [{ filename: 'agenda.txt', content_type: 'text/plain', content: btoa('agenda') }],
+		reply_to_message_id: 'm1',
+	}
+
+	/** Records the order of the provider writes a scheduled-send action makes. */
+	function recordWrites() {
+		const order: string[] = []
+		mailbox.createDraft.mockImplementation(async () => {
+			order.push('draft')
+			return { data: { id: 'd-safe' } }
+		})
+		mailbox.cancelScheduledMessage.mockImplementation(async () => void order.push('cancel'))
+		mailbox.send.mockImplementation(async () => {
+			order.push('send')
+			return { data: { id: 'message-sent' } }
+		})
+		mailbox.deleteDraft.mockImplementation(async () => void order.push('delete draft'))
+		return order
+	}
+
+	function withFullScheduled() {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: fullScheduled })
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1', message_ids: ['m0', 'm1', 'm2', 'm3'] } })
+		mailbox.downloadAttachment.mockImplementation(async () => new Response('agenda'))
+	}
+
+	it('saves every field as a draft before cancelling, and answers the draft', async () => {
+		withFullScheduled()
+		const order = recordWrites()
+		expect(await fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			draftId: 'd-safe',
+			folders: [],
+		})
+		expect(order).toEqual(['draft', 'cancel'])
+		expect(mailbox.createDraft).toHaveBeenCalledWith(fullOutgoing)
+		expect(mailbox.cancelScheduledMessage).toHaveBeenCalledWith('sched-1')
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'm2')
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('refuses a message that is not scheduled, without writing anything', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...scheduled, schedule_id: undefined } })
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.createDraft).not.toHaveBeenCalled()
+		expect(mailbox.cancelScheduledMessage).not.toHaveBeenCalled()
+	})
+
+	it('keeps the schedule when the draft copy cannot be saved', async () => {
+		withFullScheduled()
+		mailbox.createDraft.mockRejectedValue(new Error('drafts unavailable'))
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.cancelScheduledMessage).not.toHaveBeenCalled()
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('removes the copy when the schedule could not be cancelled and still stands', async () => {
+		withFullScheduled()
+		const order = recordWrites()
+		mailbox.cancelScheduledMessage.mockRejectedValue(new Error('provider down'))
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(order).toEqual(['draft', 'delete draft', 'draft', 'delete draft'])
+		expect(mailbox.deleteDraft).toHaveBeenCalledWith('d-safe')
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('still reports the cancel failure when the copy cannot be removed', async () => {
+		withFullScheduled()
+		recordWrites()
+		mailbox.cancelScheduledMessage.mockRejectedValue(new Error('provider down'))
+		mailbox.deleteDraft.mockRejectedValue(new Error('also down'))
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('keeps the copy when a failed cancel leaves the schedule unknown or gone', async () => {
+		withFullScheduled()
+		recordWrites()
+		mailbox.cancelScheduledMessage.mockRejectedValue(new Error('timeout'))
+		mailbox.getMessage
+			.mockResolvedValueOnce({ data: fullScheduled })
+			.mockRejectedValueOnce(new Error('cannot read it again'))
+			.mockResolvedValueOnce({ data: fullScheduled })
+			.mockResolvedValueOnce({ data: { ...fullScheduled, schedule_id: undefined } })
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.deleteDraft).not.toHaveBeenCalled()
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+
+	it('sends it now in its thread, with its people and files, then removes the safety draft', async () => {
+		withFullScheduled()
+		const order = recordWrites()
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			message: { id: 'message-sent' },
+			folders: [],
+		})
+		expect(order).toEqual(['draft', 'cancel', 'send', 'delete draft'])
+		expect(mailbox.createDraft).toHaveBeenCalledWith(fullOutgoing)
+		expect(mailbox.send).toHaveBeenCalledWith(fullOutgoing)
+		expect(mailbox.deleteDraft).toHaveBeenCalledWith('d-safe')
+	})
+
+	it('tries the safety draft’s removal again once, and says nothing when the retry removes it', async () => {
+		withFullScheduled()
+		recordWrites()
+		mailbox.deleteDraft.mockRejectedValueOnce(new Error('drafts busy')).mockResolvedValueOnce(undefined)
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			message: { id: 'message-sent' },
+			folders: [],
+		})
+		expect(mailbox.deleteDraft).toHaveBeenCalledTimes(2)
+	})
+
+	it('reports the send as done, with a warning to delete the copy, when the safety draft stays', async () => {
+		withFullScheduled()
+		recordWrites()
+		mailbox.deleteDraft.mockRejectedValue(new Error('drafts unavailable'))
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			message: { id: 'message-sent' },
+			warning: fns.SCHEDULED_SEND_COPY_KEPT,
+			folders: [],
+		})
+		expect(mailbox.deleteDraft).toHaveBeenCalledTimes(2)
+		expect(fns.SCHEDULED_SEND_COPY_KEPT).toBe(
+			'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+		)
+	})
+
+	it('keeps the draft and names it when the send fails after the schedule is cancelled', async () => {
+		withFullScheduled()
+		const order = recordWrites()
+		mailbox.send.mockRejectedValue(new Error('rejected'))
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			draftId: 'd-safe',
+			error: fns.SCHEDULED_SEND_FAILED,
+			folders: [],
+		})
+		expect(fns.SCHEDULED_SEND_FAILED).toBe('Couldn’t send. Saved as a draft.')
+		expect(order).toEqual(['draft', 'cancel'])
+		expect(mailbox.deleteDraft).not.toHaveBeenCalled()
+	})
+
+	it('answers the thread’s last message when the scheduled one is not listed in it', async () => {
+		resolveMailbox()
+		recordWrites()
+		mailbox.getMessage.mockResolvedValue({ data: scheduled })
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1', message_ids: ['m0', 'm1'] } })
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		expect(mailbox.send).toHaveBeenCalledWith(expect.objectContaining({ reply_to_message_id: 'm1' }))
+	})
+
+	it('starts no reply chain for a message alone in its thread, or outside one', async () => {
+		resolveMailbox()
+		recordWrites()
+		mailbox.getMessage.mockResolvedValueOnce({ data: scheduled })
+		mailbox.getThread.mockResolvedValue({ data: { id: 't1' } })
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		mailbox.getMessage.mockResolvedValueOnce({
+			data: { id: 'm2', schedule_id: 'sched-1', to: undefined, subject: undefined, body: undefined },
+		})
+		await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })
+		expect(mailbox.getThread).toHaveBeenCalledTimes(1)
+		expect(mailbox.send).toHaveBeenNthCalledWith(1, {
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Q3 offsite agenda',
+			body: '<p>Thanks</p>',
+		})
+		expect(mailbox.send).toHaveBeenNthCalledWith(2, { to: [], subject: '', body: '' })
+	})
+
+	it('keeps the schedule when a file cannot be read first', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...scheduled, attachments: [{ id: 'a1' }] } })
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		await expect(fns.cancelScheduledSend.handler({ data: { messageId: 'm2' } })).rejects.toThrow(
+			/Something went wrong/,
+		)
+		expect(mailbox.createDraft).not.toHaveBeenCalled()
+		expect(mailbox.cancelScheduledMessage).not.toHaveBeenCalled()
+		expect(mailbox.send).not.toHaveBeenCalled()
+	})
+})
+
+describe('Edit and resend', () => {
+	const bounced = {
+		id: 'm1',
+		thread_id: 't1',
+		from: [{ email: 'Ada@OwnMail.com' }],
+		to: [{ email: 'mary@nasa.gov' }],
+		cc: [{ email: 'grace@example.com' }],
+		subject: 'Launch dates',
+		body: '<p>Here are the dates.</p>',
+		attachments: [{ id: 'a1', filename: 'dates.pdf', content_type: 'application/pdf' }],
+	}
+
+	it('validates the message id and the address', () => {
+		expect(fns.createResendDraft.validator({ messageId: 'm1', to: 'mary@nasa.gov' })).toEqual({
+			messageId: 'm1',
+			toList: ['mary@nasa.gov'],
+		})
+		expect(fns.createResendDraft.validator({ messageId: 'm1', to: '' })).toEqual({
+			messageId: 'm1',
+			toList: [],
+		})
+		expect(() => fns.createResendDraft.validator({ messageId: '', to: 'mary@nasa.gov' })).toThrow(
+			'Invalid message',
+		)
+		expect(() => fns.createResendDraft.validator({ messageId: 'm1', to: 'not an address' })).toThrow(
+			'Invalid recipient',
+		)
+	})
+
+	it('copies your bounced message, files included, into a draft to the address that bounced', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: bounced })
+		mailbox.downloadAttachment.mockImplementation(async () => new Response('pdf'))
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		mailbox.listFolders.mockResolvedValue({ data: [] })
+		expect(
+			await fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).toEqual({ draftId: 'd-resend', folders: [] })
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'm1')
+		expect(mailbox.createDraft).toHaveBeenCalledWith({
+			to: [{ email: 'mary@nasa.gov' }],
+			subject: 'Launch dates',
+			body: '<p>Here are the dates.</p>',
+			attachments: [{ filename: 'dates.pdf', content_type: 'application/pdf', content: btoa('pdf') }],
+		})
+	})
+
+	it('copies a message without files, subject or body as it is', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { id: 'm1', from: [{ email: 'ada@ownmail.com' }] } })
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		await fns.createResendDraft.handler({ data: { messageId: 'm1', toList: [] } })
+		expect(mailbox.createDraft).toHaveBeenCalledWith({ to: [], subject: '', body: '' })
+	})
+
+	it('copies only your own message, and writes nothing when its files cannot be read', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...bounced, from: [{ email: 'mallory@example.com' }] } })
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		mailbox.getMessage.mockResolvedValue({ data: { ...bounced, from: undefined } })
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		mailbox.getMessage.mockResolvedValue({ data: bounced })
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		expect(mailbox.createDraft).not.toHaveBeenCalled()
+	})
+})
+
+describe('markMessagesRead', () => {
+	it('validates the thread and message ids, without repeats', () => {
+		expect(fns.markMessagesRead.validator({ threadId: 't1', messageIds: ['m1', 'm2', 'm1'] })).toEqual({
+			threadId: 't1',
+			messageIds: ['m1', 'm2'],
+		})
+		expect(() => fns.markMessagesRead.validator({ threadId: 't1', messageIds: 'm1' } as never)).toThrow(
+			'Invalid messages',
+		)
+		expect(() => fns.markMessagesRead.validator(null as never)).toThrow('Invalid messages')
+		expect(() =>
+			fns.markMessagesRead.validator({
+				threadId: 't1',
+				messageIds: Array.from({ length: 201 }, (_, index) => `m${index}`),
+			}),
+		).toThrow('Invalid messages')
+		expect(() => fns.markMessagesRead.validator({ threadId: 't1', messageIds: ['bad id\n'] })).toThrow()
+	})
+
+	it('marks each given message read, never the thread', async () => {
+		resolveMailbox()
+		const updateMessage = vi.fn(async (id: string) => ({ data: { id } }))
+		Object.assign(mailbox, { updateMessage })
+		expect(
+			await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1', 'm2'] } }),
+		).toEqual({
+			threadId: 't1',
+			messageIds: ['m1', 'm2'],
+			folders: [],
+		})
+		expect(updateMessage).toHaveBeenNthCalledWith(1, 'm1', { unread: false })
+		expect(updateMessage).toHaveBeenNthCalledWith(2, 'm2', { unread: false })
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
+	})
+
+	it('answers only the messages the provider confirmed', async () => {
+		resolveMailbox()
+		const updateMessage = vi
+			.fn()
+			.mockResolvedValueOnce({ data: { id: 'm1' } })
+			.mockRejectedValueOnce(new Error('busy'))
+		Object.assign(mailbox, { updateMessage })
+		expect(
+			await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1', 'm2'] } }),
+		).toEqual({
+			threadId: 't1',
+			messageIds: ['m1'],
+			folders: [],
+		})
+	})
+
+	it('fails when no message could be marked', async () => {
+		resolveMailbox()
+		Object.assign(mailbox, { updateMessage: vi.fn().mockRejectedValue(new Error('provider detail')) })
+		await expect(
+			fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1'] } }),
+		).rejects.toThrow('Something went wrong talking to your mailbox.')
+	})
+
+	it('marks nothing when the mailbox client cannot update one message', async () => {
+		resolveMailbox()
+		expect(await fns.markMessagesRead.handler({ data: { threadId: 't1', messageIds: ['m1'] } })).toEqual({
+			threadId: 't1',
+			messageIds: [],
+		})
+		expect(mailbox.updateThread).not.toHaveBeenCalled()
 	})
 })
 

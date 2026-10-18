@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Mail } from 'lucide-react'
 import {
 	type ComponentProps,
@@ -28,7 +28,8 @@ import {
 	senderLabel,
 } from '../lib/conversation-model.js'
 import { senderImagesTrusted } from '../lib/image-sender-trust.js'
-import { replyAllDraftSearch, replyDraftSearch } from '../lib/mail-ui-model.js'
+import { replyAllDraftSearch } from '../lib/mail-ui-model.js'
+import { replyBase, replyTarget } from '../lib/thread-stream.js'
 import { type MailMessage, threadListUnsubscribeQueryOptions } from '../state/mail-queries.js'
 import { AttachmentLink } from './AttachmentLink.js'
 import { CalendarInvitationCard } from './CalendarInvitationCard.js'
@@ -72,16 +73,26 @@ async function fetchListUnsubscribeIds(threadId: string): Promise<string[]> {
 }
 
 const NO_MESSAGE_IDS: readonly string[] = []
+const NO_INERT_IDS: ReadonlySet<string> = new Set()
 
 /**
  * The Conversation view of one thread. Which messages are bulk mail is one of
- * its classification signals, looked up once per account and thread and cached.
+ * its classification signals, looked up once per account, thread and newest
+ * message and cached; a new reply asks again while the earlier answer stays.
  * Until that answer is in, the transcript is the thread skeleton's placeholder:
  * a message is never painted as a bubble and then re-drawn as an article. If
  * the lookup fails, messages are classified on their bodies alone.
  */
 export function ConversationTranscript(props: Omit<ComponentProps<typeof Transcript>, 'listUnsubscribeIds'>) {
-	const lookup = useQuery(threadListUnsubscribeQueryOptions(props.threadId, fetchListUnsubscribeIds))
+	const queryClient = useQueryClient()
+	const lookup = useQuery(
+		threadListUnsubscribeQueryOptions(
+			props.threadId,
+			props.messages.at(-1)?.id,
+			fetchListUnsubscribeIds,
+			queryClient,
+		),
+	)
 	if (lookup.isPending) return <ThreadMessagesPlaceholder />
 	return <Transcript {...props} listUnsubscribeIds={lookup.data ?? NO_MESSAGE_IDS} />
 }
@@ -101,10 +112,14 @@ function Transcript({
 	listUnsubscribeIds,
 	onDisplayStatus,
 	renderOriginal,
+	inertIds = NO_INERT_IDS,
+	renderNotice,
+	drafts,
 	reply,
 	children,
 }: {
 	threadId: string
+	/** The messages sent in the thread; never an unsent draft (`drafts` shows those). */
 	messages: MailMessage[]
 	mailboxEmail?: string | undefined
 	loadRemoteImagesForThread: boolean
@@ -116,6 +131,12 @@ function Transcript({
 	onDisplayStatus: (messageId: string, status: EmailDisplayStatus | null) => void
 	/** The standard reader's body for one message, with the thread's display settings. */
 	renderOriginal: (message: MailMessage) => ReactNode
+	/** Messages whose links are disabled (failed or unanswered sender checks, a lookalike): their words stay, no destination. */
+	inertIds?: ReadonlySet<string>
+	/** What is said above a message, such as why its links are disabled. */
+	renderNotice?: (message: MailMessage) => ReactNode
+	/** Your unsent drafts of this thread, after the transcript and before the reply input. */
+	drafts?: ReactNode
 	reply?: ConversationReply | undefined
 	children?: ReactNode
 }) {
@@ -197,7 +218,8 @@ function Transcript({
 			return next
 		})
 
-	const lastMessage = messages.at(-1)
+	// The reply input answers what the reader's Reply answers: never a bounce report.
+	const lastMessage = replyBase(messages)
 	// A thread of only designed mail opens as an article, not a chat.
 	const chat = conversation.layout === 'chat'
 	return (
@@ -221,9 +243,12 @@ function Transcript({
 						group={conversation.group}
 						chat={chat}
 						renderOriginal={renderOriginal}
+						inertIds={inertIds}
+						renderNotice={renderNotice}
 						onSetOriginal={setOriginal}
 					/>
 				))}
+				{drafts}
 			</LinkPreviewRegion>
 			{reply && lastMessage && chat ? (
 				<ConversationReplyBar
@@ -246,12 +271,16 @@ function TranscriptItem({
 	group,
 	chat,
 	renderOriginal,
+	inertIds,
+	renderNotice,
 	onSetOriginal,
 }: {
 	item: ConversationItem
 	group: boolean
 	chat: boolean
 	renderOriginal: (message: MailMessage) => ReactNode
+	inertIds: ReadonlySet<string>
+	renderNotice: ((message: MailMessage) => ReactNode) | undefined
 	onSetOriginal: (ids: string[], original: boolean) => void
 }) {
 	if (item.kind === 'day') {
@@ -304,6 +333,7 @@ function TranscriptItem({
 								</Button>
 							) : null}
 						</div>
+						{renderNotice?.(message)}
 						<div className="w-full min-w-0 empty:hidden">
 							<CalendarInvitationCard message={message} />
 						</div>
@@ -345,6 +375,7 @@ function TranscriptItem({
 							</Button>
 						) : null}
 					</div>
+					{renderNotice?.(message)}
 					<CalendarInvitationCard message={message} />
 				</ThreadColumn>
 				{renderOriginal(message)}
@@ -386,8 +417,9 @@ function TranscriptItem({
 									Show original
 								</Button>
 							</div>
+							{renderNotice?.(message)}
 							<CalendarInvitationCard message={message} />
-							<CleanBlocks blocks={item.blocks} />
+							<CleanBlocks blocks={item.blocks} linksDisabled={inertIds.has(message.id)} />
 							<BubbleAttachments message={message} />
 						</div>
 					</MessageMenu>
@@ -426,6 +458,8 @@ function TranscriptItem({
 							bubble={bubble}
 							mine={item.mine}
 							label={name}
+							linksDisabled={inertIds.has(bubble.message.id)}
+							notice={renderNotice?.(bubble.message)}
 							onShowOriginal={() => onSetOriginal([bubble.message.id], true)}
 						/>
 					))}
@@ -510,17 +544,23 @@ function Bubble({
 	bubble,
 	mine,
 	label,
+	linksDisabled,
+	notice,
 	onShowOriginal,
 }: {
 	bubble: ConversationBubble
 	mine: boolean
 	label: string
+	linksDisabled: boolean
+	/** Said above the bubble, such as why its links are disabled. */
+	notice: ReactNode
 	onShowOriginal: () => void
 }) {
 	const { message } = bubble
 	const hasAttachments = (message.attachments ?? []).some((attachment) => !attachment.is_inline)
 	return (
 		<>
+			{notice}
 			<div className="w-full min-w-0 empty:hidden">
 				<CalendarInvitationCard message={message} />
 			</div>
@@ -538,7 +578,7 @@ function Bubble({
 					)}
 				>
 					{bubble.blocks.length > 0 ? (
-						<CleanBlocks blocks={bubble.blocks} historyOpen={bubble.unsure} />
+						<CleanBlocks blocks={bubble.blocks} historyOpen={bubble.unsure} linksDisabled={linksDisabled} />
 					) : hasAttachments ? null : (
 						<p className="text-sm text-muted-foreground">No message text</p>
 					)}
@@ -574,7 +614,7 @@ const REPLY_RECIPIENTS_SHOWN = 3
  * The pinned reply input. It names everyone who will receive the reply and
  * opens the existing composer, which is where the message is written and sent.
  * The recipients come from the same functions the composer is opened with
- * (`replyAllDraftSearch` and `replyDraftSearch`), so the bar can never name a
+ * (`replyAllDraftSearch` and `replyTarget`), so the bar can never name a
  * different set: the reply-all flow addresses everyone in To and sends no Cc,
  * and the bar says so. A long list shows its first names and a count that
  * expands to the full list. A group defaults to reply-all; replying to one
@@ -610,8 +650,9 @@ function ConversationReplyBar({
 			.split(', ')
 			.filter(Boolean)
 			.map((email) => names.get(email.toLowerCase()) ?? email)
-	// A reply to one person goes to the Reply-To address when the sender set one.
-	const one = named(replyDraftSearch(message).to)
+	// A reply to one person goes to whoever the reader's Reply goes to: the
+	// Reply-To or the sender, or, on your own message, the first other person on it.
+	const one = named(replyTarget(message, mailboxEmail)?.email ?? '')
 	const recipients = toAll ? named(replyAllDraftSearch(message, mailboxEmail).to) : one
 	const hidden = expanded ? 0 : Math.max(0, recipients.length - REPLY_RECIPIENTS_SHOWN)
 	const shown = hidden > 0 ? recipients.slice(0, REPLY_RECIPIENTS_SHOWN) : recipients

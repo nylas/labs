@@ -1,16 +1,21 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { QueryClient } from '@tanstack/react-query'
+import { onlineManager, QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import { accountScope, SERVER_ACCOUNT_SCOPE } from '#app/lib/account-scope'
 import {
 	draftQueryOptions,
 	draftsQueryOptions,
 	foldersQueryOptions,
+	headerFactsState,
+	isSessionMailLookup,
 	MAIL_KEY_ARGUMENT,
 	MAIL_KEY_KIND,
 	mailKeys,
+	messageHeaderFactsFor,
+	messageRawHeadersQueryOptions,
 	normalizeMailThreadFilters,
 	threadDetailQueryOptions,
+	threadHeaderFactsQueryOptions,
 	threadListQueryOptions,
 	threadListUnsubscribeQueryOptions,
 	toMailDraft,
@@ -40,9 +45,12 @@ describe('mail query cache boundaries', () => {
 		// The answer says which messages are bulk mail. It belongs to one inbox's
 		// thread: another account opening a thread with the same id must not read it.
 		const fetchIds = vi.fn(async (threadId: string) => [`${threadId}-newsletter`])
-		const options = threadListUnsubscribeQueryOptions('t1', fetchIds)
-		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-list-unsubscribe', 't1'])
-		expect(mailKeys.threadListUnsubscribe('t1')).toEqual(options.queryKey)
+		const options = threadListUnsubscribeQueryOptions('t1', 'm1', fetchIds)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-list-unsubscribe', 't1', 'm1'])
+		expect(mailKeys.threadListUnsubscribe('t1', 'm1')).toEqual(options.queryKey)
+		expect(threadListUnsubscribeQueryOptions('t1', undefined, fetchIds).queryKey).toEqual(
+			mailKeys.threadListUnsubscribe('t1'),
+		)
 		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
 		expect(options.retry).toBe(false)
 
@@ -50,7 +58,123 @@ describe('mail query cache boundaries', () => {
 		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
 		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
 		expect(fetchIds).toHaveBeenCalledTimes(1)
-		expect(() => threadListUnsubscribeQueryOptions('bad\nid', fetchIds)).toThrow()
+		// A new reply grows the thread and asks again.
+		await queryClient.fetchQuery(threadListUnsubscribeQueryOptions('t1', 'm2', fetchIds))
+		expect(fetchIds).toHaveBeenCalledTimes(2)
+		expect(() => threadListUnsubscribeQueryOptions('bad\nid', 'm1', fetchIds)).toThrow()
+		expect(() => threadListUnsubscribeQueryOptions('t1', 'bad\nid', fetchIds)).toThrow()
+
+		// While a new reply is looked up, the same thread's newest cached answer stands in.
+		const placeholderFor = (threadId: string, client?: QueryClient) =>
+			(threadListUnsubscribeQueryOptions(threadId, 'm3', fetchIds, client).placeholderData as () => unknown)()
+		expect(placeholderFor('t1')).toBeUndefined()
+		expect(placeholderFor('t2', queryClient)).toBeUndefined()
+		queryClient.setQueryData(mailKeys.threadListUnsubscribe('t1', 'm0'), ['older'], { updatedAt: 1 })
+		queryClient.setQueryData(mailKeys.threadListUnsubscribe('t1', 'm4'), ['newest'], {
+			updatedAt: Date.now() + 1000,
+		})
+		void queryClient.prefetchQuery({
+			queryKey: mailKeys.threadListUnsubscribe('t1', 'm5'),
+			queryFn: () => new Promise<string[]>(() => {}),
+		})
+		expect(placeholderFor('t1', queryClient)).toEqual(['newest'])
+	})
+
+	it('keeps header facts per account, thread and newest message for the session and never retries a failure', async () => {
+		const facts = { byMessage: { m1: { verified: true, authFailed: false, listUnsubscribe: false } } }
+		const fetchFacts = vi.fn(async () => facts)
+		const options = threadHeaderFactsQueryOptions('t1', 'm1', fetchFacts)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-header-facts', 't1', 'm1'])
+		expect(mailKeys.threadHeaderFacts('t1', 'm1')).toEqual(options.queryKey)
+		// A thread with no message yet is looked up under its id alone.
+		expect(threadHeaderFactsQueryOptions('t1', undefined, fetchFacts).queryKey).toEqual([
+			'mail',
+			accountScope(),
+			'thread-header-facts',
+			't1',
+			'',
+		])
+		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
+		expect(options.retry).toBe(false)
+
+		const queryClient = new QueryClient()
+		expect(await queryClient.fetchQuery(options)).toEqual(facts)
+		await queryClient.fetchQuery(options)
+		expect(fetchFacts).toHaveBeenCalledTimes(1)
+		expect(fetchFacts).toHaveBeenCalledWith('t1')
+		expect(() => threadHeaderFactsQueryOptions('bad\nid', 'm1', fetchFacts)).toThrow()
+		expect(() => threadHeaderFactsQueryOptions('t1', 'bad\nid', fetchFacts)).toThrow()
+
+		// While a new reply is looked up, only the same thread's earlier answer stands in.
+		const placeholder = options.placeholderData as (
+			previous: unknown,
+			previousQuery: { queryKey: readonly unknown[] } | undefined,
+		) => unknown
+		expect(placeholder(facts, { queryKey: mailKeys.threadHeaderFacts('t1', 'm0') })).toBe(facts)
+		expect(placeholder(facts, { queryKey: mailKeys.threadHeaderFacts('t2', 'm9') })).toBeUndefined()
+		expect(placeholder(undefined, undefined)).toBeUndefined()
+
+		// A lookup asked again that fails rejects, and the earlier answer stays: a
+		// sender already marked as failing checks never has its links turned back on.
+		const failing = threadHeaderFactsQueryOptions('t1', 'm1', async () => {
+			throw new Error('Sender checks could not be looked up.')
+		})
+		await expect(queryClient.fetchQuery({ ...failing, staleTime: 0 })).rejects.toThrow()
+		expect(queryClient.getQueryData(options.queryKey)).toEqual(facts)
+		expect(queryClient.getQueryState(options.queryKey)?.status).toBe('error')
+
+		expect(messageHeaderFactsFor(facts, 'm1')?.verified).toBe(true)
+		expect(messageHeaderFactsFor(facts, 'toString')).toBeUndefined()
+		expect(messageHeaderFactsFor(undefined, 'm1')).toBeUndefined()
+	})
+
+	it('says where a header lookup stands: settled only once the lookup for the thread as it is now answered', () => {
+		expect(headerFactsState({ status: 'success', isPlaceholderData: false })).toBe('settled')
+		// An earlier answer shown while a new reply is looked up is not the answer yet.
+		expect(headerFactsState({ status: 'success', isPlaceholderData: true })).toBe('pending')
+		expect(headerFactsState({ status: 'pending', isPlaceholderData: false })).toBe('pending')
+		expect(headerFactsState({ status: 'error', isPlaceholderData: false })).toBe('failed')
+	})
+
+	it('names the lookups a mail refresh never asks again', () => {
+		expect(isSessionMailLookup(mailKeys.threadHeaderFacts('t1', 'm1'))).toBe(true)
+		expect(isSessionMailLookup(mailKeys.threadListUnsubscribe('t1'))).toBe(true)
+		expect(isSessionMailLookup(mailKeys.messageRawHeaders('m1'))).toBe(true)
+		// Read state changes elsewhere, so a refresh asks the per-row unread summary again.
+		expect(isSessionMailLookup([...mailKeys.all, 'thread-unread-summary', 't1', 'm1'])).toBe(false)
+		expect(isSessionMailLookup(['mail-side-thread', accountScope(), 't1', 'plans'])).toBe(true)
+		expect(isSessionMailLookup(mailKeys.threadDetail('t1'))).toBe(false)
+		expect(isSessionMailLookup(mailKeys.folders())).toBe(false)
+		expect(isSessionMailLookup(['contacts', 'thread-header-facts'])).toBe(false)
+		expect(isSessionMailLookup(['mail'])).toBe(false)
+	})
+
+	it('fetches raw headers per account and message only on request and keeps them briefly', async () => {
+		const fetchHeaders = vi.fn(async () => ({ text: 'From: a@b.co' }))
+		const options = messageRawHeadersQueryOptions('m1', fetchHeaders)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'message-raw-headers', 'm1'])
+		expect(mailKeys.messageRawHeaders('m1')).toEqual(options.queryKey)
+		expect(options.retry).toBe(false)
+		expect(options.gcTime).toBe(60_000)
+		expect(await new QueryClient().fetchQuery(options)).toBe('From: a@b.co')
+		expect(fetchHeaders).toHaveBeenCalledWith('m1')
+		expect(() => messageRawHeadersQueryOptions('', fetchHeaders)).toThrow('Invalid message')
+	})
+
+	it('carries the ids of messages that failed to load into the cache, validated', () => {
+		const detail = toMailThreadDetail({
+			thread,
+			messages: [message],
+			mailboxEmail: 'ada@example.com',
+			failedMessageIds: ['m2', 'm2', 'bad\nid', '', 7 as never, 'm3'],
+		})
+		expect(detail.failedMessageIds).toEqual(['m2', 'm3'])
+		expect(
+			toMailThreadDetail({ thread, messages: [], mailboxEmail: 'a@b.co', failedMessageIds: 'm2' as never }),
+		).not.toHaveProperty('failedMessageIds')
+		expect(
+			toMailThreadDetail({ thread, messages: [], mailboxEmail: 'a@b.co', failedMessageIds: [] }),
+		).not.toHaveProperty('failedMessageIds')
 	})
 
 	it('normalizes stable filters and query keys', () => {
@@ -207,6 +331,19 @@ describe('mail query cache boundaries', () => {
 			messages: [toMailMessage(message)],
 			mailboxEmail: 'me@example.com',
 		})
+	})
+
+	it('loads a conversation even offline, so one not saved on this device fails instead of waiting', async () => {
+		const options = threadDetailQueryOptions('t1', async () => {
+			throw new Error('offline')
+		})
+		expect(options.networkMode).toBe('always')
+		onlineManager.setOnline(false)
+		try {
+			await expect(new QueryClient().fetchQuery({ ...options, retry: false })).rejects.toThrow('offline')
+		} finally {
+			onlineManager.setOnline(true)
+		}
 	})
 
 	it('builds paginated thread options without putting page tokens in the query key', async () => {

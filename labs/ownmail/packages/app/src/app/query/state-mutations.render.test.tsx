@@ -12,8 +12,11 @@ const api = vi.hoisted(() => ({
 	deleteDraft: vi.fn(),
 	deleteEvent: vi.fn(),
 	getContacts: vi.fn(),
+	markMessagesRead: vi.fn(),
 	markThreadRead: vi.fn(),
 	rsvpEvent: vi.fn(),
+	cancelScheduledSend: vi.fn(),
+	sendScheduledNow: vi.fn(),
 	saveDraft: vi.fn(),
 	sendDraft: vi.fn(),
 	updateContact: vi.fn(),
@@ -35,7 +38,10 @@ vi.mock('#server/fns', () => ({
 	getContact: vi.fn(),
 	getContacts: api.getContacts,
 	getMailboxInfo: vi.fn(),
+	markMessagesRead: api.markMessagesRead,
 	markThreadRead: api.markThreadRead,
+	cancelScheduledSend: api.cancelScheduledSend,
+	sendScheduledNow: api.sendScheduledNow,
 	saveDraft: api.saveDraft,
 	sendDraft: api.sendDraft,
 	updateContact: api.updateContact,
@@ -63,10 +69,12 @@ import {
 	useUpdateContactMutation,
 } from '#features/contacts/state/contacts-state'
 import {
+	markOpenedThreadRead,
 	markThreadReadOnOpen,
 	openThreadDetail,
 	useDeleteDraftMutation,
 	useSaveDraftMutation,
+	useScheduledSendMutation,
 	useSendDraftMutation,
 	useUpdateThreadMutation,
 } from '#features/mail/state/mail-mutations'
@@ -895,6 +903,19 @@ describe('mail mutation hooks', () => {
 		await act(() => removeDraft.current.mutateAsync(draft.id))
 	})
 
+	it('sends a scheduled message now or cancels it, then reloads the mail cache', async () => {
+		api.sendScheduledNow.mockResolvedValue({ cancelledMessageId: 'msg-1' })
+		api.cancelScheduledSend.mockResolvedValue({ cancelledMessageId: 'msg-2' })
+		const invalidate = vi.spyOn(client, 'invalidateQueries')
+		const scheduled = renderHook(() => useScheduledSendMutation(), { wrapper }).result
+		await act(() => scheduled.current.mutateAsync({ messageId: 'msg-1', action: 'send-now' }))
+		expect(api.sendScheduledNow).toHaveBeenCalledWith({ data: { messageId: 'msg-1' } })
+		await act(() => scheduled.current.mutateAsync({ messageId: 'msg-2', action: 'cancel' }))
+		expect(api.cancelScheduledSend).toHaveBeenCalledWith({ data: { messageId: 'msg-2' } })
+		expect(invalidate).toHaveBeenCalledTimes(2)
+		expect(invalidate).toHaveBeenCalledWith({ queryKey: mailKeys.all })
+	})
+
 	it('rolls back rejected optimistic mail operations', async () => {
 		api.updateThreadState.mockRejectedValue(new Error('offline'))
 		const mutation = renderHook(() => useUpdateThreadMutation(), { wrapper }).result
@@ -1018,8 +1039,8 @@ describe('marking a thread read on open', () => {
 		expect(client.getQueryData<{ thread: { unread: boolean } }>(detailKey)?.thread.unread).toBe(true)
 	})
 
-	it('does not report a thread read when its read failed before the conversation loaded', async () => {
-		api.markThreadRead.mockRejectedValue(new Error('offline'))
+	it('asks the provider to mark the thread read only once the conversation has loaded', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', unread: false } })
 		let deliver: () => void = () => {}
 		const loaded = new Promise<void>((resolve) => (deliver = resolve))
 
@@ -1027,6 +1048,31 @@ describe('marking a thread read on open', () => {
 			await loaded
 			return { thread: { id: 'thread-1', unread: true } }
 		})
+		// The row reads at once; the provider's read waits for the messages, so
+		// they still say which were unread when the reader first shows them.
+		await vi.waitFor(() => expect(cachedRow()?.unread).toBe(false))
+		await new Promise((resolve) => setTimeout(resolve, 0))
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+		deliver()
+
+		await expect(opening).resolves.toEqual({ thread: { id: 'thread-1', unread: false } })
+		await vi.waitFor(() => expect(api.markThreadRead).toHaveBeenCalledTimes(1))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+	})
+
+	it('does not report a thread read when its read failed before the conversation loaded', async () => {
+		let reject: (reason: unknown) => void = () => {}
+		api.markThreadRead.mockReturnValue(new Promise((_resolve, fail) => (reject = fail)))
+		let deliver: () => void = () => {}
+		const loaded = new Promise<void>((resolve) => (deliver = resolve))
+
+		// A read already in flight (the reader marked it on an earlier open) is joined, not repeated.
+		expect(markThreadReadOnOpen(client, 'thread-1')).toBe(true)
+		const opening = openThreadDetail(client, 'thread-1', { preload: false }, async () => {
+			await loaded
+			return { thread: { id: 'thread-1', unread: true } }
+		})
+		reject(new Error('offline'))
 		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
 		deliver()
 
@@ -1052,5 +1098,131 @@ describe('marking a thread read on open', () => {
 			openThreadDetail(client, 'thread-2', { preload: false }, async () => unaligned),
 		).resolves.toBe(unaligned)
 		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+	})
+})
+
+describe('marking a partly loaded thread read', () => {
+	const inboxKey = mailKeys.threadList({ folderId: 'inbox' })
+	const cachedRow = () => client.getQueryData<MailThreadListData>(inboxKey)?.pages[0]?.threads[0]
+	const detailKey = mailKeys.threadDetail('thread-1')
+	const inboxFolders = [{ id: 'inbox', unread_count: 1 }] as MailFolder[]
+	const partial = {
+		thread: { id: 'thread-1', unread: true },
+		messages: [
+			{ id: 'm1', unread: true },
+			{ id: 'm2', unread: false },
+			{ id: 'd1', unread: true, ownmailDraft: true },
+			{ id: 'm3', unread: true },
+		],
+		failedMessageIds: ['m4'],
+	}
+
+	beforeEach(() => client.setQueryData(mailKeys.folders(), inboxFolders))
+
+	it('never marks the thread read when its conversation loaded only in part', async () => {
+		const opened = await openThreadDetail(
+			client,
+			'thread-1',
+			{ preload: false, queryKey: detailKey },
+			async () => partial,
+		)
+		expect(opened).toBe(partial)
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+		// The optimistic read is rolled back: row and badge say unread again.
+		expect(cachedRow()?.unread).toBe(true)
+		expect(client.getQueryData<MailFolder[]>(mailKeys.folders())?.[0]?.unread_count).toBe(1)
+	})
+
+	it('never marks the thread read when its conversation did not load', async () => {
+		await expect(
+			openThreadDetail(client, 'thread-1', { preload: false }, async () => {
+				throw new Error('offline')
+			}),
+		).rejects.toThrow('offline')
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+		expect(cachedRow()?.unread).toBe(true)
+	})
+
+	it('marks only the unread messages shown, and keeps the thread unread', async () => {
+		let answer: (value: unknown) => void = () => {}
+		api.markMessagesRead.mockReturnValue(new Promise((resolve) => (answer = resolve)))
+		client.setQueryData(detailKey, partial)
+		markOpenedThreadRead(client, 'thread-1', partial)
+		// One request per thread while it is in flight.
+		markOpenedThreadRead(client, 'thread-1', partial)
+		await vi.waitFor(() => expect(api.markMessagesRead).toHaveBeenCalledTimes(1))
+		expect(api.markMessagesRead).toHaveBeenCalledWith({
+			data: { threadId: 'thread-1', messageIds: ['m1', 'm3'] },
+		})
+		expect(client.isMutating()).toBe(1)
+		// Nothing is marked before the provider confirms it.
+		expect(cachedRow()?.unread).toBe(true)
+		answer({ threadId: 'thread-1', messageIds: ['m1'] })
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		const detail = client.getQueryData<typeof partial>(detailKey)
+		expect(detail?.messages.map((message) => [message.id, message.unread])).toEqual([
+			['m1', false],
+			['m2', false],
+			['d1', true],
+			['m3', true],
+		])
+		expect(detail?.thread.unread).toBe(true)
+		expect(cachedRow()?.unread).toBe(true)
+		expect(client.getQueryData<MailFolder[]>(mailKeys.folders())?.[0]?.unread_count).toBe(1)
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+	})
+
+	it('changes nothing when the mailbox marked none, or the reader holds no detail', async () => {
+		api.markMessagesRead.mockResolvedValue({ threadId: 'thread-1', messageIds: [] })
+		client.setQueryData(detailKey, partial)
+		markOpenedThreadRead(client, 'thread-1', partial)
+		await vi.waitFor(() => expect(api.markMessagesRead).toHaveBeenCalledTimes(1))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(client.getQueryData(detailKey)).toBe(partial)
+
+		client.removeQueries({ queryKey: detailKey })
+		api.markMessagesRead.mockResolvedValue({ threadId: 'thread-1', messageIds: ['m1'] })
+		markOpenedThreadRead(client, 'thread-1', partial)
+		await vi.waitFor(() => expect(api.markMessagesRead).toHaveBeenCalledTimes(2))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(client.getQueryData(detailKey)).toBeUndefined()
+	})
+
+	it('leaves every message unread when the provider refuses', async () => {
+		api.markMessagesRead.mockRejectedValue(new Error('offline'))
+		client.setQueryData(detailKey, partial)
+		markOpenedThreadRead(client, 'thread-1', partial)
+		await vi.waitFor(() => expect(api.markMessagesRead).toHaveBeenCalledTimes(1))
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(client.getQueryData(detailKey)).toBe(partial)
+		// A later open may try again.
+		markOpenedThreadRead(client, 'thread-1', partial)
+		await vi.waitFor(() => expect(api.markMessagesRead).toHaveBeenCalledTimes(2))
+	})
+
+	it('asks for nothing when no shown message is unread, the thread is read, or on the server', () => {
+		markOpenedThreadRead(client, 'thread-1', { ...partial, messages: [{ id: 'm2', unread: false }] })
+		markOpenedThreadRead(client, 'thread-1', { ...partial, thread: { id: 'thread-1', unread: false } })
+		vi.stubGlobal('window', undefined)
+		try {
+			markOpenedThreadRead(client, 'thread-1', partial)
+		} finally {
+			vi.unstubAllGlobals()
+		}
+		expect(api.markMessagesRead).not.toHaveBeenCalled()
+		expect(api.markThreadRead).not.toHaveBeenCalled()
+	})
+
+	it('marks a thread that loaded in full read as a whole', async () => {
+		api.markThreadRead.mockResolvedValue({ thread: { id: 'thread-1', folders: ['inbox'], unread: false } })
+		markOpenedThreadRead(client, 'thread-1', { ...partial, failedMessageIds: [] })
+		await vi.waitFor(() =>
+			expect(api.markThreadRead).toHaveBeenCalledWith({ data: { threadId: 'thread-1' } }),
+		)
+		await vi.waitFor(() => expect(client.isMutating()).toBe(0))
+		expect(cachedRow()?.unread).toBe(false)
+		expect(api.markMessagesRead).not.toHaveBeenCalled()
 	})
 })

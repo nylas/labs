@@ -26,15 +26,23 @@ describe('touch editing styles', () => {
 
 describe('typefaces', () => {
 	// Manrope is the primary face; Inter is reserved for data. Each extra family
-	// is another file on the first paint's critical path, so no other face ships.
+	// is another file on the first paint's critical path, so no other face ships,
+	// except the Arabic face, which a browser fetches only for Arabic text.
 	it('sets body and headings in Manrope, data in Inter, and declares no other web font', () => {
 		expect(tokens).toMatch(/--font-sans:\s*var\(--font-manrope\)/)
 		expect(tokens).toMatch(/--font-display: var\(--font-manrope\)/)
 		expect(tokens).toMatch(/--font-data: var\(--font-inter\)/)
-		const families = [...tokens.matchAll(/@font-face\s*\{\s*font-family: "([^"]+)"/g)].map(
-			(match) => match[1],
-		)
-		expect(families).toEqual(['Manrope', 'Manrope Fallback', 'Inter', 'Inter Fallback'])
+		const faces = [...tokens.matchAll(/@font-face\s*\{\s*font-family: "([^"]+)"([^}]*)\}/g)]
+		expect(faces.map((match) => match[1])).toEqual([
+			'Manrope',
+			'Manrope Fallback',
+			'Inter',
+			'Inter Fallback',
+			'Noto Naskh Arabic',
+		])
+		const arabic = faces.find((match) => match[1] === 'Noto Naskh Arabic')?.[2] ?? ''
+		expect(arabic).toMatch(/unicode-range:\s+U\+0600-06FF,/)
+		expect(arabic).not.toMatch(/U\+00[0-5]/)
 	})
 })
 
@@ -113,17 +121,18 @@ describe('native mobile shell styles', () => {
 })
 
 describe('thread reader message header', () => {
-	it('is a 40px row with a fine pointer', () => {
-		expect(styles).toMatch(/\n\.message-header-row\s*\{\s*min-height: 2\.5rem;\s*\}/)
+	it('sizes an open header to its avatar and actions with a fine pointer, as board 01 does', () => {
+		expect(styles).not.toMatch(/\n\.message-header-row\s*\{\s*min-height/)
+		expect(styles).toMatch(
+			/\.message-hover-actions\s*\{\s*gap: 2px;\s*padding: 2px;\s*border-radius: 8px;\s*\}/,
+		)
 	})
 
-	it('keeps the 44px touch floor on narrow and touch-capable devices', () => {
+	it('keeps the 44px touch floor for a collapsed header on narrow and touch-capable devices', () => {
 		const touchRule =
-			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\.message-header-row\s*\{\s*min-height: var\(--touch-target-min\);/
+			/@media \(max-width: 48rem\), \(any-pointer: coarse\)\s*\{\s*\[data-slot="message-header"\]\[data-state="collapsed"\] \.message-header-row\s*\{\s*min-height: var\(--touch-target-min\);/
 		expect(styles).toMatch(touchRule)
 		expect(tokens).toContain('--touch-target-min: 2.75rem;')
-		// The touch override must follow the 40px base rule to win at equal specificity.
-		expect(styles.search(touchRule)).toBeGreaterThan(styles.indexOf('\n.message-header-row {'))
 	})
 })
 
@@ -149,11 +158,13 @@ describe('borders and accents', () => {
 		expect(error).not.toMatch(/border-(left|right|top|bottom)/)
 	})
 
-	it('marks the open thread and current folder with a fill only', () => {
-		for (const selector of ['.thread-row:has([data-active="true"])', '.nav-item-active']) {
-			expect(rule(selector)).toContain('background: var(--muted);')
-			expect(rule(selector)).not.toContain('box-shadow')
-		}
+	it('marks the current folder with a fill only, and the open thread with a tint in a uniform ring', () => {
+		expect(rule('.nav-item-active')).toContain('background: var(--muted);')
+		expect(rule('.nav-item-active')).not.toContain('box-shadow')
+		const open = rule('.thread-row:has([data-active="true"])')
+		expect(open).toContain('background: var(--list-selected);')
+		// A ring on every side is allowed; a one-sided inset shadow would be a rail.
+		expect(open).toContain('box-shadow: inset 0 0 0 1px var(--list-selected-line);')
 		expect(rule('.nav-item-active')).toContain('font-weight: 500;')
 		expect(styles).not.toContain('.mobile-nav-item-active')
 	})
@@ -209,14 +220,16 @@ describe('mail list density styles', () => {
 
 	// design.md "List density": unread rows have no dot. The dot crowded the star and the
 	// pane edge; weight and the accent time carry unread instead (see ThreadRow).
-	it('defines the Default three-line row once, with no unread dot and the sender clear of the star', () => {
+	it('defines the Default three-line row once, with no unread dot and the sender clear of the checkbox', () => {
 		expect(outsideDensityBlock).toMatch(
 			/\.thread-row\s*\{[^}]*display: grid;[^}]*grid-template-areas:\s*"lead who when"\s*"text text text";/,
 		)
 		expect(styles).not.toContain('.thread-row-dot')
 		expect(outsideDensityBlock).not.toMatch(/\.thread-row\s*\{[^}]*padding/)
-		// The star's 32px hover box reaches 8px past its icon; the sender starts 12px away.
-		expect(styles).toMatch(/\.thread-row-sender\s*\{[^}]*margin-left: 0\.75rem;/)
+		// The lead track holds only the selection checkbox; the sender starts 12px clear of it,
+		// and at the row's 16px edge when there is none.
+		expect(styles).toMatch(/\.thread-row-lead \+ \.thread-row-sender\s*\{[^}]*margin-left: 0\.75rem;/)
+		expect(styles).toMatch(/\.thread-row-sender\s*\{\s*grid-area: who;\s*\}/)
 	})
 
 	it('starts Default and Compact subject and snippet lines at the row edge the list title shares', () => {
@@ -251,7 +264,11 @@ describe('mail list density styles', () => {
 			/\[data-density="compact"\] \.thread-row\s*\{\s*row-gap: 1px;\s*padding-block: 0\.625rem;/,
 		)
 		expect(densityBlock).toMatch(
-			/\[data-density="compact"\] \.thread-row-subject,\s*\[data-density="compact"\] \.thread-row-snippet,[^{]*\{\s*display: inline;/,
+			/\[data-density="compact"\] \.thread-row-summary,\s*\[data-density="condensed"\] \.thread-row-summary\s*\{\s*display: flex;\s*flex: 1;\s*flex-wrap: wrap;\s*min-width: 0;\s*height: 1\.25rem;\s*overflow: hidden;/,
+		)
+		// A snippet with under 6rem to say anything wraps out of sight instead of leaving " · …".
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row-snippet,\s*\[data-density="condensed"\] \.thread-row-snippet\s*\{\s*flex: 1 1 6rem;\s*min-width: 6rem;/,
 		)
 		expect(densityBlock).toMatch(
 			/\[data-density="compact"\] \.thread-row-snippet:not\(:empty\)::before,[^{]*\{\s*content: " {2}· {2}";/,
@@ -441,6 +458,11 @@ describe('glass layer', () => {
 		expect(under).toContain('scroll-padding-bottom: var(--mobile-bar-inset);')
 		// Only where the bar exists: desktop bottoms keep their own padding.
 		expect(glass).toMatch(/@media \(width < 48rem\)\s*\{\s*\.under-mobile-bar\s*\{/)
+		// The phone thread's reply bar is 76px plus its hairline, taller than the tab bar.
+		expect(block(glass, '.under-mobile-reply-bar').replace(/\s+/g, ' ')).toContain(
+			'--mobile-bar-inset: max( calc(4.75rem + 1px), calc(var(--mobile-tab-bar-height) + 1px + var(--safe-area-bottom)) );',
+		)
+		expect(glass.indexOf('.under-mobile-reply-bar {')).toBeGreaterThan(glass.indexOf('.under-mobile-bar {'))
 	})
 
 	it('hides the pull-to-refresh indicator beneath a pinned bar until it is pulled', () => {

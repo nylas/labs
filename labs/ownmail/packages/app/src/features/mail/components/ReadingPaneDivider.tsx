@@ -16,7 +16,8 @@ import {
 import { cn } from '#shared/lib/utils'
 
 const KEYBOARD_STEP_PX = 16
-const DEFAULT_LIST_WIDTH_PX = 352
+// The 22.5rem vertical-split default (board 01) at the 16px root size.
+const DEFAULT_LIST_WIDTH_PX = 360
 const DEFAULT_LIST_HEIGHT_PERCENT = 40
 
 type Panes = {

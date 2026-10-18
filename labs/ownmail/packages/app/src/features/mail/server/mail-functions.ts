@@ -1,9 +1,18 @@
-import { type Draft, type Folder, type Message, NylasApiError, type Thread } from '@nylas-labs/cli-kit/v3'
+import {
+	type Draft,
+	type Folder,
+	type Message,
+	NylasApiError,
+	type SendMessageRequest,
+	type Thread,
+} from '@nylas-labs/cli-kit/v3'
 import { createServerFn } from '@tanstack/react-start'
 import { signalLocalChange } from '#server/change-version'
-import { requireNylasProviderId } from '#server/ids'
+import { requireNylasProviderId, validNylasProviderId } from '#server/ids'
 import { friendly, listData, requireMailbox } from '#server/mailbox-boundary'
+import { usingDevMocks } from '#server/platform'
 import { timeOperation } from '#server/request-context'
+import { DEV_MOCK_LIST_SIZES } from './dev-mock-lists.js'
 import { protectMessageImageSources } from './email-image-sources.js'
 import {
 	type FolderIdInput,
@@ -13,11 +22,22 @@ import {
 	normalizeUpdateFolderInput,
 	type UpdateFolderInput,
 } from './folder-input.js'
+import {
+	type MessageHeaderFacts,
+	messageHeaderFacts,
+	rawHeaderText,
+	type ThreadHeaderFacts,
+} from './header-facts.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
-import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
+import {
+	MAX_JSON_ATTACHMENTS,
+	normalizeOutboundAttachments,
+	type OutboundAttachment,
+} from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
+import { listThreadMessagePages, type ThreadMessageLister } from './thread-message-pages.js'
 import { normalizeThreadStateInput } from './thread-state.js'
 
 const MAX_MESSAGE_BODY_LENGTH = 500_000
@@ -115,13 +135,10 @@ function isNotFound(err: unknown): boolean {
 		: err instanceof Error && /not found|deleted/i.test(err.message)
 }
 
-function draftThreadMessages(
-	draft: Draft,
-	email: string,
-	displayName?: string,
-): { thread: Thread; messages: Message[]; ownmailDraftMessageIds: string[] } {
+/** A draft as a message of its thread: from you, in Drafts, read. */
+function draftMessage(draft: Draft, email: string, displayName?: string): Message {
 	const from = draft.from?.length ? draft.from : [{ email, ...(displayName ? { name: displayName } : {}) }]
-	const message: Message = {
+	return {
 		...draft,
 		from,
 		thread_id: draft.thread_id ?? draft.id,
@@ -129,6 +146,14 @@ function draftThreadMessages(
 		unread: false,
 		starred: draft.starred ?? false,
 	}
+}
+
+function draftThreadMessages(
+	draft: Draft,
+	email: string,
+	displayName?: string,
+): { thread: Thread; messages: Message[]; ownmailDraftMessageIds: string[] } {
+	const message = draftMessage(draft, email, displayName)
 	const thread: Thread = {
 		id: draft.id,
 		grant_id: draft.grant_id,
@@ -145,6 +170,18 @@ function draftThreadMessages(
 		folders: draft.folders ?? ['drafts'],
 	}
 	return { thread, messages: [message], ownmailDraftMessageIds: [message.id] }
+}
+
+/** Most drafts a thread's reader loads: one unsent reply is the common case. */
+const MAX_THREAD_DRAFTS = 10
+
+/** The drafts a provider lists on a thread (`draft_ids`), valid ids only. */
+function threadDraftIds(thread: Thread): string[] {
+	const ids = (thread as Thread & { draft_ids?: unknown }).draft_ids
+	if (!Array.isArray(ids)) return []
+	return [
+		...new Set(ids.filter((id): id is string => typeof id === 'string' && validNylasProviderId(id))),
+	].slice(0, MAX_THREAD_DRAFTS)
 }
 
 function stripHtml(value: string): string {
@@ -264,6 +301,7 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			messages: Message[]
 			mailboxEmail: string
 			ownmailDraftMessageIds?: string[]
+			failedMessageIds?: string[]
 		}> => {
 			// Reading is side-effect free: route preloads fetch this on hover, and
 			// the client marks a thread read explicitly when it is actually opened.
@@ -271,10 +309,33 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 			try {
 				const thread = await mailbox.getThread(data.threadId)
 				const messageIds = thread.data.message_ids ?? []
-				const messages = await Promise.all(messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)))
-				messages.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
-				const protectedMessages = await Promise.all(messages.map(protectMessageImageSources))
-				return { thread: thread.data, messages: protectedMessages, mailboxEmail: email }
+				// One unreadable message must not hide the rest of the conversation:
+				// the reader shows what loaded and names how many did not.
+				const settled = await Promise.allSettled(
+					messageIds.map((id) => mailbox.getMessage(id).then((r) => r.data)),
+				)
+				const failedMessageIds = messageIds.filter((_, index) => settled[index]?.status === 'rejected')
+				const firstFailure = settled.find((result) => result.status === 'rejected')
+				if (firstFailure && failedMessageIds.length === messageIds.length) throw firstFailure.reason
+				const messages = settled.flatMap((result) => (result.status === 'fulfilled' ? [result.value] : []))
+				// Your unsent replies sit in the thread, under the message each answers. A
+				// draft that cannot be read is left out: it is still in Drafts.
+				const draftIds = threadDraftIds(thread.data)
+				const drafts = (
+					await Promise.allSettled(draftIds.map((id) => mailbox.getDraft(id).then((r) => r.data)))
+				).flatMap((result) =>
+					result.status === 'fulfilled' ? [draftMessage(result.value, email, displayName)] : [],
+				)
+				const all = [...messages, ...drafts]
+				all.sort((a, b) => (a.date ?? 0) - (b.date ?? 0))
+				const protectedMessages = await Promise.all(all.map(protectMessageImageSources))
+				return {
+					thread: thread.data,
+					messages: protectedMessages,
+					mailboxEmail: email,
+					...(drafts.length > 0 ? { ownmailDraftMessageIds: drafts.map((draft) => draft.id) } : {}),
+					...(failedMessageIds.length > 0 ? { failedMessageIds } : {}),
+				}
 			} catch (err) {
 				if (!isNotFound(err)) throw err
 				const drafts = await mailbox.listDrafts({ limit: 50 })
@@ -290,8 +351,20 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 		},
 	)
 
-/** Messages in one thread looked up for their List-Unsubscribe header. */
-const LIST_UNSUBSCRIBE_LOOKUP_LIMIT = 50
+type HeaderMessage = (Message & { headers?: unknown }) | null
+
+/**
+ * Every message of one thread with its untrusted provider headers, newest
+ * first, for at most 200 messages. Any failure rejects, so callers keep their
+ * single "no answer" fallback.
+ */
+async function listThreadMessagesWithHeaders(
+	mailbox: ThreadMessageLister,
+	threadId: string,
+): Promise<HeaderMessage[]> {
+	return (await listThreadMessagePages<HeaderMessage>(mailbox, threadId, { fields: 'include_headers' }))
+		.messages
+}
 
 /** Whether untrusted provider headers include a non-empty List-Unsubscribe. Only the name is compared. */
 function hasListUnsubscribe(headers: unknown): boolean {
@@ -322,22 +395,93 @@ export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
 	.handler(async ({ data }): Promise<{ messageIds: string[] }> => {
 		const { mailbox } = await requireMailbox()
 		try {
-			const response = await mailbox.listMessages({
-				thread_id: data.threadId,
-				fields: 'include_headers',
-				limit: LIST_UNSUBSCRIBE_LOOKUP_LIMIT,
-			})
-			const messages = (Array.isArray(response.data) ? response.data : []) as Array<
-				Message & { headers?: unknown }
-			>
-			return {
-				messageIds: messages
-					.filter((message) => typeof message?.id === 'string' && hasListUnsubscribe(message.headers))
-					.map((message) => message.id),
-			}
+			const messages = await listThreadMessagesWithHeaders(mailbox, data.threadId)
+			const messageIds = messages
+				.filter((message) => typeof message?.id === 'string' && hasListUnsubscribe(message.headers))
+				.map((message) => (message as Message).id)
+			// A message can appear on two pages when the thread changes mid-walk.
+			return { messageIds: [...new Set(messageIds)] }
 		} catch {
 			return { messageIds: [] }
 		}
+	})
+
+/**
+ * What a thread's headers say about each message: sender authentication,
+ * Reply-To, mailing list and unsubscribe targets, and the sender's time zone.
+ * Headers are requested once per thread, only when the reader asks, a page at
+ * a time for at most 200 messages; facts from every page are merged. The
+ * provider lists a thread's messages newest first, so past the cap it is the
+ * oldest that go unanswered, and the reader treats a message without facts
+ * as unchecked (links disabled, "Sender checks couldn't be run"). Their
+ * values are untrusted, are never stored or logged, and only the derived
+ * booleans and short validated strings of `messageHeaderFacts` leave the
+ * server. Any failure rejects (no part of a thread's facts is answered): the
+ * reader then says the checks could not be run and keeps links disabled.
+ */
+/** What a failed header-facts lookup says; no provider detail reaches the reader. */
+const HEADER_FACTS_FAILED = 'Sender checks could not be looked up.'
+
+export const getThreadHeaderFacts = createServerFn({ method: 'GET' })
+	.validator((input: { threadId: string }) => ({
+		threadId: requireNylasProviderId(input.threadId, 'thread'),
+	}))
+	.handler(async ({ data }): Promise<ThreadHeaderFacts> => {
+		const { mailbox, email } = await requireMailbox()
+		try {
+			const messages = await listThreadMessagesWithHeaders(mailbox, data.threadId)
+			const entries: Array<[string, MessageHeaderFacts]> = []
+			for (const message of messages) {
+				if (!message || !validNylasProviderId(message.id)) continue
+				const fromEmail = Array.isArray(message.from) ? message.from[0]?.email : undefined
+				// A provider may list your own recipients as the Reply-To of what you sent;
+				// that is not a redirection a reader needs to be told about.
+				const ownMessage = typeof fromEmail === 'string' && fromEmail.toLowerCase() === email.toLowerCase()
+				const replyToEmail =
+					!ownMessage && Array.isArray(message.reply_to) ? message.reply_to[0]?.email : undefined
+				entries.push([
+					message.id,
+					messageHeaderFacts(
+						message.headers,
+						typeof fromEmail === 'string' ? fromEmail : undefined,
+						typeof replyToEmail === 'string' ? replyToEmail : undefined,
+					),
+				])
+			}
+			// fromEntries defines own keys, so a hostile id like `__proto__` stays plain data.
+			// A message seen on two pages keeps the facts of its latest copy.
+			const byMessage = Object.fromEntries(entries)
+			// Only the mock app knows how many people a list reaches.
+			return (await usingDevMocks()) ? { byMessage, listSizes: { ...DEV_MOCK_LIST_SIZES } } : { byMessage }
+		} catch {
+			// Never "no facts" as an answer: the reader would take every sender as
+			// unchecked-but-fine and turn their links on. A rejection keeps any
+			// earlier answer, and links stay disabled for what it does not cover.
+			throw new Error(HEADER_FACTS_FAILED)
+		}
+	})
+
+/**
+ * One message's header block as plain text, for "Show raw headers". Read from
+ * the provider's raw message only on that explicit request; the body never
+ * leaves the server and the text is capped at 64 KB.
+ */
+export const getMessageRawHeaders = createServerFn({ method: 'GET' })
+	.validator((input: { messageId: string }) => ({
+		messageId: requireNylasProviderId(input.messageId, 'message'),
+	}))
+	.handler(async ({ data }): Promise<{ text: string }> => {
+		const { mailbox } = await requireMailbox()
+		let rawMime: unknown
+		try {
+			const result = await mailbox.getRawMime(data.messageId)
+			rawMime = (result as { data?: { raw_mime?: unknown } } | null)?.data?.raw_mime
+		} catch (err) {
+			throw friendly(err)
+		}
+		const text = rawHeaderText(rawMime)
+		if (text === null) throw new Error('Raw headers are not available for this message.')
+		return { text }
 	})
 
 /** Explicit read-state mutation for callers that keep data loading side-effect free. */
@@ -353,6 +497,43 @@ export const markThreadRead = createServerFn({ method: 'POST' })
 		} catch (err) {
 			throw friendly(err)
 		}
+	})
+
+type MessageUpdater = {
+	updateMessage?: (messageId: string, body: { unread: boolean }) => Promise<unknown>
+}
+
+/** Most messages one partial-thread read marks: a reader shows at most this many. */
+const MAX_MARKED_MESSAGES = 200
+
+/**
+ * Marks only the given messages of a thread read, one by one. A reader that
+ * could not load every message of a thread uses this instead of
+ * `markThreadRead`, so messages nobody has seen stay unread. A mailbox client
+ * without per-message updates marks nothing, and the thread stays unread.
+ * Answers the ids the provider confirmed.
+ */
+export const markMessagesRead = createServerFn({ method: 'POST' })
+	.validator((input: { threadId: string; messageIds: string[] }) => {
+		if (!input || !Array.isArray(input.messageIds) || input.messageIds.length > MAX_MARKED_MESSAGES) {
+			throw new Error('Invalid messages')
+		}
+		return {
+			threadId: requireNylasProviderId(input.threadId, 'thread'),
+			messageIds: [...new Set(input.messageIds.map((id) => requireNylasProviderId(id, 'message')))],
+		}
+	})
+	.handler(async ({ data }): Promise<{ threadId: string; messageIds: string[]; folders?: Folder[] }> => {
+		const { mailbox, grantId } = await requireMailbox()
+		const update = (mailbox as MessageUpdater).updateMessage
+		if (typeof update !== 'function') return { threadId: data.threadId, messageIds: [] }
+		const settled = await Promise.allSettled(
+			data.messageIds.map((id) => update.call(mailbox, id, { unread: false })),
+		)
+		const marked = data.messageIds.filter((_, index) => settled[index]?.status === 'fulfilled')
+		const failure = settled.find((result) => result.status === 'rejected')
+		if (failure && marked.length === 0) throw friendly(failure.reason)
+		return mailReceipt(mailbox, grantId, { threadId: data.threadId, messageIds: marked })
 	})
 
 export const sendMessage = createServerFn({ method: 'POST' })
@@ -380,6 +561,204 @@ export const sendMessage = createServerFn({ method: 'POST' })
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			})
 			return mailReceipt(mailbox, grantId, { message: sent.data })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+// ---- Scheduled sends ------------------------------------------------------------
+
+/** What "Send now" answers when the provider refused the send: the message is kept as a draft. */
+export const SCHEDULED_SEND_FAILED = 'Couldn’t send. Saved as a draft.'
+
+/** What "Send now" answers when the message went but its safety copy is still in Drafts. */
+export const SCHEDULED_SEND_COPY_KEPT =
+	'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.'
+
+type ScheduledMailbox = AttachmentDownloader & {
+	getMessage(messageId: string): Promise<{ data: Message }>
+	getThread(threadId: string): Promise<{ data: Thread }>
+	createDraft(body: SendMessageRequest): Promise<{ data: Draft }>
+	deleteDraft(draftId: string): Promise<void>
+	cancelScheduledMessage(scheduleId: string): Promise<void>
+}
+
+type ScheduledMessage = Message & { schedule_id: string }
+
+/** Your scheduled message as the provider holds it, read before its schedule is cancelled. */
+async function scheduledMessage(mailbox: ScheduledMailbox, messageId: string): Promise<ScheduledMessage> {
+	const message = (await mailbox.getMessage(messageId)).data
+	if (!validNylasProviderId(message.schedule_id)) throw new Error('This message is not scheduled to send.')
+	return message as ScheduledMessage
+}
+
+/** The thread message a scheduled reply answers: the one before it, so sending it now keeps the thread. */
+async function scheduledReplyTarget(
+	mailbox: ScheduledMailbox,
+	message: Message,
+): Promise<string | undefined> {
+	if (!message.thread_id) return undefined
+	const ids = (await mailbox.getThread(message.thread_id)).data.message_ids ?? []
+	const index = ids.indexOf(message.id)
+	const earlier = (index < 0 ? ids : ids.slice(0, index)).filter((id) => id !== message.id)
+	return earlier.at(-1)
+}
+
+/**
+ * Everything a scheduled message holds, as an outgoing message: its people
+ * (To, Cc, Bcc, Reply-To), subject, HTML body, files and its place in the
+ * thread. Read in full before anything is changed; any failure here leaves
+ * the schedule as it was.
+ */
+async function scheduledOutgoing(mailbox: ScheduledMailbox, message: Message): Promise<SendMessageRequest> {
+	const restored = await restoreDraftAttachments(mailbox, message)
+	const replyToMessageId = await scheduledReplyTarget(mailbox, message)
+	return {
+		to: message.to ?? [],
+		...(message.cc?.length ? { cc: message.cc } : {}),
+		...(message.bcc?.length ? { bcc: message.bcc } : {}),
+		...(message.reply_to?.length ? { reply_to: message.reply_to } : {}),
+		subject: message.subject ?? '',
+		body: message.body ?? '',
+		...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
+		...(replyToMessageId ? { reply_to_message_id: replyToMessageId } : {}),
+	}
+}
+
+/**
+ * Cancels the schedule of a message whose full copy is already a draft, so
+ * the draft is never the second thing written. When the provider refuses,
+ * the message is read again: still scheduled, it sends as planned and the copy
+ * is removed; otherwise the copy may be the only one left, so it stays.
+ */
+async function cancelWithSafetyCopy(
+	mailbox: ScheduledMailbox,
+	message: ScheduledMessage,
+	draftId: string,
+): Promise<void> {
+	try {
+		await mailbox.cancelScheduledMessage(message.schedule_id)
+	} catch (err) {
+		const stillScheduled = await mailbox.getMessage(message.id).then(
+			(current) => current.data.schedule_id === message.schedule_id,
+			() => false,
+		)
+		if (stillScheduled) await mailbox.deleteDraft(draftId).catch(() => {})
+		throw err
+	}
+}
+
+const scheduledInput = (input: { messageId: string }) => ({
+	messageId: requireNylasProviderId(input.messageId, 'message'),
+})
+
+/**
+ * Stops a scheduled message from sending, with the provider's scheduled-send
+ * API. Every field of it (people, subject, HTML body, files, thread) is saved
+ * as a draft first, and only then is the schedule cancelled; the reader opens
+ * that draft in the composer, so nothing is lost.
+ */
+export const cancelScheduledSend = createServerFn({ method: 'POST' })
+	.validator(scheduledInput)
+	.handler(async ({ data }) => {
+		const { mailbox, grantId } = await requireMailbox()
+		try {
+			const message = await scheduledMessage(mailbox, data.messageId)
+			const draft = (await mailbox.createDraft(await scheduledOutgoing(mailbox, message))).data
+			await cancelWithSafetyCopy(mailbox, message, draft.id)
+			return mailReceipt(mailbox, grantId, { cancelledMessageId: message.id, draftId: draft.id })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
+
+/**
+ * Sends a scheduled message now. Its content and files are read and saved as
+ * a draft first, its schedule is cancelled, and the same message goes out at
+ * once, in its thread. Once it has gone the safety draft is removed (tried
+ * twice; if it still stays, the receipt warns with `SCHEDULED_SEND_COPY_KEPT`,
+ * since sending that copy would send the message again). When the send fails
+ * the draft stays, and the receipt names it with `SCHEDULED_SEND_FAILED` so
+ * the reader can open it.
+ */
+export const sendScheduledNow = createServerFn({ method: 'POST' })
+	.validator(scheduledInput)
+	.handler(
+		async ({
+			data,
+		}): Promise<
+			{ cancelledMessageId: string; folders?: Folder[] } & (
+				| { message: Message; warning?: string }
+				| { draftId: string; error: string }
+			)
+		> => {
+			const { mailbox, grantId } = await requireMailbox()
+			let copy: { message: ScheduledMessage; outgoing: SendMessageRequest; draftId: string }
+			try {
+				const message = await scheduledMessage(mailbox, data.messageId)
+				const outgoing = await scheduledOutgoing(mailbox, message)
+				const draft = (await mailbox.createDraft(outgoing)).data
+				await cancelWithSafetyCopy(mailbox, message, draft.id)
+				copy = { message, outgoing, draftId: draft.id }
+			} catch (err) {
+				throw friendly(err)
+			}
+			let sent: Message
+			try {
+				sent = (await mailbox.send(copy.outgoing)).data
+			} catch (err) {
+				// Recorded like any provider failure; the words are safe in the draft.
+				friendly(err)
+				return mailReceipt(mailbox, grantId, {
+					cancelledMessageId: copy.message.id,
+					draftId: copy.draftId,
+					error: SCHEDULED_SEND_FAILED,
+				})
+			}
+			// The message has gone; a copy left behind only risks sending it twice.
+			const removeCopy = () =>
+				mailbox.deleteDraft(copy.draftId).then(
+					() => true,
+					() => false,
+				)
+			const removed = (await removeCopy()) || (await removeCopy())
+			return mailReceipt(mailbox, grantId, {
+				cancelledMessageId: copy.message.id,
+				message: sent,
+				...(removed ? {} : { warning: SCHEDULED_SEND_COPY_KEPT }),
+			})
+		},
+	)
+
+// ---- Edit and resend ------------------------------------------------------------
+
+/**
+ * Edit and resend: your message that bounced, copied into a new draft to the
+ * one address that bounced, with its subject, HTML body and files (read and
+ * re-attached as a scheduled message's safety draft is). The reader opens the
+ * composer on that draft. Only your own message is copied.
+ */
+export const createResendDraft = createServerFn({ method: 'POST' })
+	.validator((input: { messageId: string; to: string }) => ({
+		messageId: requireNylasProviderId(input.messageId, 'message'),
+		toList: parseRecipientEmails(input.to, { required: false }),
+	}))
+	.handler(async ({ data }): Promise<{ draftId: string; folders?: Folder[] }> => {
+		const { mailbox, grantId, email } = await requireMailbox()
+		try {
+			const message = (await mailbox.getMessage(data.messageId)).data
+			const from = message.from?.[0]?.email ?? ''
+			if (from.toLowerCase() !== email.toLowerCase()) throw new Error('Only your own message can be resent.')
+			const restored = await restoreDraftAttachments(mailbox, message)
+			const draft = (
+				await mailbox.createDraft({
+					to: data.toList.map((address) => ({ email: address })),
+					subject: message.subject ?? '',
+					body: message.body ?? '',
+					...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
+				})
+			).data
+			return mailReceipt(mailbox, grantId, { draftId: draft.id })
 		} catch (err) {
 			throw friendly(err)
 		}
@@ -416,33 +795,112 @@ export const updateThreadState = createServerFn({ method: 'POST' })
 
 // ---- Drafts ---------------------------------------------------------------------
 
+/**
+ * Cc and Bcc a draft already holds (a cancelled scheduled message keeps
+ * them). The composer does not edit them, but carries them through every
+ * save and the send, because a draft update replaces the whole draft.
+ */
+type CopiedRecipientsInput = { cc?: string; bcc?: string }
+
+function copiedRecipients(input: CopiedRecipientsInput): { ccList?: string[]; bccList?: string[] } {
+	const list = (value: unknown, field: string) => {
+		if (value === undefined) return undefined
+		if (typeof value !== 'string') throw new Error(`Invalid ${field}`)
+		const emails = parseRecipientEmails(value, { required: false })
+		return emails.length > 0 ? emails : undefined
+	}
+	const ccList = list(input.cc, 'Cc')
+	const bccList = list(input.bcc, 'Bcc')
+	return { ...(ccList ? { ccList } : {}), ...(bccList ? { bccList } : {}) }
+}
+
+function copiedRecipientsPayload(data: { ccList?: string[]; bccList?: string[] }) {
+	return {
+		...(data.ccList ? { cc: data.ccList.map((email) => ({ email })) } : {}),
+		...(data.bccList ? { bcc: data.bccList.map((email) => ({ email })) } : {}),
+	}
+}
+
+/**
+ * Files a draft already holds when the composer opens it (a cancelled
+ * scheduled message's, or a bounced message copied for Edit and resend), by
+ * file name. The composer does not hold their contents, but names them on
+ * every save, because a draft update replaces the whole draft: the server
+ * copies them from the draft as it is now, next to the composer's own files.
+ */
+function keptAttachmentNames(input: unknown): string[] | undefined {
+	if (input === undefined) return undefined
+	if (
+		!Array.isArray(input) ||
+		input.length > MAX_JSON_ATTACHMENTS ||
+		input.some((name) => typeof name !== 'string' || name.length === 0 || name.length > 255)
+	) {
+		throw new Error('Invalid attachments')
+	}
+	return input.length > 0 ? (input as string[]) : undefined
+}
+
+const attachmentName = (attachment: NonNullable<Draft['attachments']>[number]): string =>
+	(attachment.filename ?? 'attachment').trim()
+
+/** A draft's files named in `names`, each name taking one file, in the draft's order. */
+function keptDraftAttachments(draft: Draft, names: string[]): Draft {
+	const wanted = names.map((name) => name.trim())
+	const attachments = (draft.attachments ?? []).filter((attachment) => {
+		const index = wanted.indexOf(attachmentName(attachment))
+		if (index < 0) return false
+		wanted.splice(index, 1)
+		return true
+	})
+	return { ...draft, attachments }
+}
+
 export const saveDraft = createServerFn({ method: 'POST' })
 	.validator(
-		(input: {
-			draftId?: string
-			to: string
-			subject: string
-			body: string
-			replyToMessageId?: string
-			attachments?: OutboundAttachment[]
-		}) => {
+		(
+			input: {
+				draftId?: string
+				to: string
+				subject: string
+				body: string
+				replyToMessageId?: string
+				attachments?: OutboundAttachment[]
+				/** Names of files the draft already holds that stay on it (see `keptAttachmentNames`). */
+				keepAttachments?: string[]
+			} & CopiedRecipientsInput,
+		) => {
 			const message = normalizeMessageFields(input)
 			return {
 				...message,
 				...(input.draftId !== undefined ? { draftId: requireNylasProviderId(input.draftId, 'draft') } : {}),
 				toList: parseRecipientEmails(message.to, { required: false }),
+				...copiedRecipients(input),
 				attachments: normalizeOutboundAttachments(input.attachments),
+				keepAttachments: keptAttachmentNames(input.keepAttachments),
 			}
 		},
 	)
 	.handler(async ({ data }) => {
 		const { mailbox, grantId } = await requireMailbox()
 		try {
+			// Saving an existing draft replaces it whole: the files it already holds go
+			// back on it with the composer's own, or they would be lost.
+			const kept =
+				data.draftId && data.keepAttachments
+					? await restoreDraftAttachments(
+							mailbox,
+							keptDraftAttachments((await mailbox.getDraft(data.draftId)).data, data.keepAttachments),
+						)
+					: []
+			const attachments = kept.length
+				? normalizeOutboundAttachments([...kept, ...(data.attachments ?? [])])
+				: data.attachments
 			const payload = {
 				to: data.toList.map((email) => ({ email })),
+				...copiedRecipientsPayload(data),
 				subject: data.subject,
 				body: data.body,
-				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(attachments ? { attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			}
 			const saved = data.draftId
@@ -474,20 +932,23 @@ export const getDraft = createServerFn({ method: 'GET' })
 
 export const sendDraft = createServerFn({ method: 'POST' })
 	.validator(
-		(input: {
-			draftId: string
-			to: string
-			subject: string
-			body: string
-			replyToMessageId?: string
-			attachments?: OutboundAttachment[]
-		}) => {
+		(
+			input: {
+				draftId: string
+				to: string
+				subject: string
+				body: string
+				replyToMessageId?: string
+				attachments?: OutboundAttachment[]
+			} & CopiedRecipientsInput,
+		) => {
 			const message = normalizeMessageFields(input)
 			const to = parseRecipientEmails(message.to, { required: true })
 			return {
 				...message,
 				draftId: requireNylasProviderId(input.draftId, 'draft'),
 				toList: to,
+				...copiedRecipients(input),
 				attachments: normalizeOutboundAttachments(input.attachments),
 			}
 		},
@@ -500,6 +961,7 @@ export const sendDraft = createServerFn({ method: 'POST' })
 			const attachments = normalizeOutboundAttachments([...restoredAttachments, ...(data.attachments ?? [])])
 			await mailbox.updateDraft(data.draftId, {
 				to: data.toList.map((email) => ({ email })),
+				...copiedRecipientsPayload(data),
 				subject: data.subject,
 				body: data.body,
 				...(attachments ? { attachments } : {}),

@@ -24,6 +24,7 @@ import {
 	mailFolderTitle,
 	mailSearchInputValue,
 	messageBodyParagraphs,
+	messageBodyText,
 	messageHasHtml,
 	messagePreview,
 	readableSnippet,
@@ -140,6 +141,21 @@ describe('ui-model mail helpers', () => {
 		expect(messageBodyParagraphs(message)).toEqual(['Hello & welcome,', 'Line one Line two'])
 	})
 
+	it('keeps a message’s line breaks and paragraphs as written for copying and resending', () => {
+		expect(
+			messageBodyText({
+				body: '<p>Hi, my June\n  statement &amp; fee?</p>\n<p>Thanks,<br>Ada&nbsp;Lovelace</p>',
+			} as Message),
+		).toBe('Hi, my June statement & fee?\n\nThanks,\nAda Lovelace')
+		expect(messageBodyText({ body: 'a<br> <br>b<br><br><br>c' } as Message)).toBe('a\n\nb\n\nc')
+		expect(messageBodyText({ body: '<p>Unclosed <b' } as Message)).toBe('Unclosed <b')
+		expect(messageBodyText({ body: 'Line one\r\nLine two\n\n\nNext &amp; last' } as Message)).toBe(
+			'Line one\nLine two\n\nNext & last',
+		)
+		expect(messageBodyText({ snippet: 'Only <b>snippet</b>' } as Message)).toBe('Only snippet')
+		expect(messageBodyText({} as Message)).toBe('')
+	})
+
 	it('detects html bodies for rich rendering', () => {
 		expect(messageHasHtml({ body: '<p>Hello</p>' } as Message)).toBe(true)
 		expect(messageHasHtml({ body: 'plain text' } as Message)).toBe(false)
@@ -162,11 +178,14 @@ describe('ui-model mail helpers', () => {
 
 	it('formats relative list dates like the reference thread list', () => {
 		vi.useFakeTimers()
-		vi.setSystemTime(new Date('2026-07-08T12:00:00Z'))
+		// The labels follow the reader's own clock, so the moments are local times: the
+		// same in any zone the tests run in (CI runs in UTC).
+		const local = (day: number, hour: number) => new Date(2026, 6, day, hour, 30).getTime() / 1000
+		vi.setSystemTime(new Date(2026, 6, 8, 12))
 
-		expect(formatListDate(Date.parse('2026-07-08T08:30:00Z') / 1000)).toMatch(/8:30|4:30/)
-		expect(formatListDate(Date.parse('2026-07-07T08:30:00Z') / 1000)).toMatch(/Tue|Jul/)
-		expect(formatListDate(Date.parse('2026-06-20T08:30:00Z') / 1000)).toBe('Jun 20')
+		expect(formatListDate(local(8, 8))).toMatch(/^8:30\sAM$/)
+		expect(formatListDate(local(7, 8))).toBe('Tue')
+		expect(formatListDate(new Date(2026, 5, 20, 8, 30).getTime() / 1000)).toBe('Jun 20')
 		// A missing/zero timestamp yields an empty label.
 		expect(formatListDate(undefined)).toBe('')
 

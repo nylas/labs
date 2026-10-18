@@ -277,6 +277,7 @@ describe('/settings', () => {
 			calendarSidebarCollapsed: false,
 			calendarDetailPaneOpen: false,
 			hiddenCalendarsByAccount: {},
+			mutedThreadsByAccount: {},
 		})
 		const invalidTimezone = new Option('Invalid', 'not/a-timezone')
 		primaryTimezone.append(invalidTimezone)

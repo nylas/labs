@@ -9,8 +9,8 @@ import { parseRecipientEmails } from './recipients.js'
 
 describe('recipient validation', () => {
 	it('normalizes comma-separated recipients', () => {
-		expect(parseRecipientEmails(' grace@vercel.com, alan@hey.com ', { required: true })).toEqual([
-			'grace@vercel.com',
+		expect(parseRecipientEmails(' grace.hopper@vercel.com, alan@hey.com ', { required: true })).toEqual([
+			'grace.hopper@vercel.com',
 			'alan@hey.com',
 		])
 	})

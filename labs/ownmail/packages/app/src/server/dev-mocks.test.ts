@@ -51,19 +51,17 @@ describe('dev mock reference identity', () => {
 			(thread) => thread.id === 'thread-contract',
 		)
 		const sync = mockThreads({ folderId: 'work' }).threads.find((thread) => thread.id === 'thread-sync')
-		const draft = mockDrafts()[0]
+		const draft = mockDrafts().find((candidate) => candidate.id === 'draft-launch-copy')
 
-		expect(roadmap?.subject).toBe('Q3 product roadmap — final review before Monday')
-		expect(roadmap?.snippet).toBe('Thanks Grace — this is great.')
-		expect(travel?.snippet).toBe('Your trip is booked!')
+		expect(roadmap?.subject).toBe('Q3 product roadmap: final review before Friday')
+		expect(roadmap?.snippet).toBe('Ada, can you confirm that date with legal?')
+		expect(travel?.snippet).toMatch(/^Flight TP 1351 · [A-Z][a-z]{2} \d{1,2}, 6:40 AM · Seat 14A$/)
 		expect(tokens?.snippet).toBe(
 			'The v3 token set is live in the shared library. Highlights: refined spacing scale, new elevation tokens, and a proper focus ring.',
 		)
-		expect(hiking?.snippet).toBe(
-			'Hey! A few of us are thinking of doing the Dipsea trail on Saturday morning. Weather looks perfect.',
-		)
+		expect(hiking?.snippet).toBe('Saturday works, I’ll bring the map.')
 		expect(dentist?.snippet).toBe(
-			'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:00 PM.',
+			'This is a friendly reminder about your upcoming cleaning with Dr. Reyes on Thursday at 2:30 PM.',
 		)
 		expect(contract?.snippet).toBe(
 			'Attached is the countersigned draft. Let me know if anything else is needed on my end.',
@@ -94,14 +92,14 @@ describe('dev mock reference identity', () => {
 			.flatMap((message) => message.attachments ?? [])
 			.find((candidate) => !candidate.is_inline)
 
-		expect(attachment?.filename).toBe('attachment.pdf')
-		expect(attachment?.size).toBe(248 * 1024)
+		expect(attachment?.filename).toBe('Q3-roadmap-v1.pdf')
+		expect(attachment?.size).toBe(Math.round(1.6 * 1024 * 1024))
 	})
 
 	it('serves a correlated ICS invitation fixture for the RSVP UI', async () => {
 		const mailbox = createDevMailbox()
 		const { messages } = mockThreadMessages('thread-calendar-invite')
-		const attachment = messages[0]?.attachments?.[0]
+		const attachment = messages.at(-1)?.attachments?.[0]
 
 		expect(attachment).toMatchObject({
 			id: 'att-calendar-invite',
@@ -110,12 +108,12 @@ describe('dev mock reference identity', () => {
 		})
 		const response = await mailbox.downloadAttachment('att-calendar-invite', 'msg-calendar-invite')
 		expect(response.headers.get('content-type')).toBe('text/calendar')
-		expect(await response.text()).toContain('UID:launch-readiness@ownmail.dev')
+		expect(await response.text()).toContain('UID:design-review@ownmail.dev')
 		expect(
-			(await mailbox.listEvents({ calendar_id: 'primary', ical_uid: 'launch-readiness@ownmail.dev' })).data,
+			(await mailbox.listEvents({ calendar_id: 'primary', ical_uid: 'design-review@ownmail.dev' })).data,
 		).toHaveLength(1)
 		expect(
-			(await mailbox.listEvents({ calendar_id: 'work', ical_uid: 'launch-readiness@ownmail.dev' })).data,
+			(await mailbox.listEvents({ calendar_id: 'work', ical_uid: 'design-review@ownmail.dev' })).data,
 		).toEqual([])
 		expect(
 			(await mailbox.listEvents({ calendar_id: 'primary', ical_uid: 42 as never })).data.length,
@@ -129,7 +127,7 @@ describe('dev mock reference identity', () => {
 			content: btoa('hello'),
 		}
 		const sent = mockSendMessage({
-			toList: ['grace@vercel.com'],
+			toList: ['grace.hopper@vercel.com'],
 			subject: 'Notes',
 			body: 'Attached.',
 			attachments: [attachment],
@@ -143,7 +141,7 @@ describe('dev mock reference identity', () => {
 		expect(sent.attachments?.[0]).not.toHaveProperty('content')
 
 		const saved = mockSaveDraft({
-			to: 'grace@vercel.com',
+			to: 'grace.hopper@vercel.com',
 			subject: 'Draft notes',
 			body: 'Attached.',
 			attachments: [attachment],
@@ -159,11 +157,42 @@ describe('dev mock reference identity', () => {
 		expect(sentDraft?.has_attachments).toBe(true)
 	})
 
+	it('keeps a reply draft in the thread it answers, across edits', () => {
+		const thread = mockThreads({ folderId: 'inbox' }).threads.find(
+			(item) => (item.message_ids ?? []).length > 0,
+		)
+		const replyTo = thread?.message_ids?.[0] as string
+		const saved = mockSaveDraft({
+			to: 'grace.hopper@vercel.com',
+			subject: 'Re: reply',
+			body: 'First',
+			replyToMessageId: replyTo,
+		})
+		const inThread = () => mockThreads({}).threads.find((item) => item.id === thread?.id)
+		expect(mockDraft(saved.draftId).thread_id).toBe(thread?.id)
+		expect(inThread()?.draft_ids).toContain(saved.draftId)
+		mockSaveDraft({
+			draftId: saved.draftId,
+			to: 'grace.hopper@vercel.com',
+			subject: 'Re: reply',
+			body: 'Edited',
+		})
+		expect(mockDraft(saved.draftId).thread_id).toBe(thread?.id)
+		expect(inThread()?.draft_ids).toContain(saved.draftId)
+		const orphan = mockSaveDraft({
+			to: 'a@example.com',
+			subject: 'Re: gone',
+			body: 'x',
+			replyToMessageId: 'missing',
+		})
+		expect(mockDraft(orphan.draftId).thread_id).toBeUndefined()
+	})
+
 	it('preserves existing draft attachments when an update omits replacements', async () => {
 		const mailbox = createDevMailbox()
 		const attachment = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
 		const created = await mailbox.createDraft({
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			attachments: [attachment],
 		})
 		await mailbox.updateDraft(created.data.id, { subject: 'Updated draft' })
@@ -178,7 +207,7 @@ describe('dev mock reference identity', () => {
 		const original = { filename: 'notes.txt', content_type: 'text/plain', content: btoa('hello') }
 		const replacement = { filename: 'updated.txt', content_type: 'text/plain', content: btoa('updated') }
 		const created = await mailbox.createDraft({
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			reply_to_message_id: 'm1',
 			attachments: [original],
 		})
@@ -233,7 +262,7 @@ describe('dev mock reference identity', () => {
 			mockThreads({ folderId: 'work', searchQueryNative: 'roadmap' }).threads.map((thread) => thread.id),
 		).toEqual(['thread-roadmap'])
 		expect(mockThreads({ folderId: 'work', searchQueryNative: 'Welcome' }).threads).toEqual([])
-		expect(mockThreads({ anyEmail: 'grace@vercel.com' }).threads.map((thread) => thread.id)).toContain(
+		expect(mockThreads({ anyEmail: 'grace.hopper@vercel.com' }).threads.map((thread) => thread.id)).toContain(
 			'thread-roadmap',
 		)
 		expect(mockThreads({ searchQueryNative: 'not-present-in-reference' }).threads).toEqual([])
@@ -272,7 +301,7 @@ describe('dev mock reference identity', () => {
 
 describe('dev mailbox reference account fallbacks', () => {
 	it('trims a provided inbox email and keeps the reference default when it is blank', () => {
-		expect(devMailboxEmail('  grace@vercel.com  ')).toBe('grace@vercel.com')
+		expect(devMailboxEmail('  grace.hopper@vercel.com  ')).toBe('grace.hopper@vercel.com')
 		expect(devMailboxEmail('   ')).toBe('ada@ownmail.com')
 	})
 
@@ -322,14 +351,17 @@ describe('dev mock Nylas client surface', () => {
 	})
 
 	it('applies every thread query filter and also returns everything for an empty query', async () => {
+		// Nothing on the boards is starred; star one conversation to filter by it.
+		await mailbox.updateThread('thread-hiking', { starred: true })
 		const filtered = await mailbox.listThreads({
 			in: 'personal',
 			subject: 'weekend',
-			any_email: 'alan@hey.com',
+			any_email: 'alan@bletchley.dev',
 			search_query_native: 'weekend',
 			starred: true,
 		})
 		expect(filtered.data.map((thread) => thread.id)).toContain('thread-hiking')
+		await mailbox.updateThread('thread-hiking', { starred: false })
 
 		const all = await mailbox.listThreads()
 		expect(all.data.length).toBeGreaterThan(0)
@@ -380,7 +412,7 @@ describe('dev mock Nylas client surface', () => {
 
 	it('creates, reads, updates, sends and deletes drafts', async () => {
 		const created = await mailbox.createDraft({
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			subject: 'Draft one',
 			body: 'first',
 			attachments: [attachment],
@@ -392,7 +424,7 @@ describe('dev mock Nylas client surface', () => {
 		expect(bareDraft.data.subject).toBe('')
 
 		await mailbox.updateDraft(draftId, {
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			subject: 'Draft two',
 			body: 'second',
 			attachments: [attachment],
@@ -410,7 +442,7 @@ describe('dev mock Nylas client surface', () => {
 
 	it('sends a draft and returns the resulting sent message', async () => {
 		const created = await mailbox.createDraft({
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			subject: 'Send this draft',
 			body: 'ready',
 		})
@@ -505,7 +537,7 @@ describe('dev mock Nylas client surface', () => {
 				title: 'Full event',
 				description: 'desc',
 				location: 'HQ',
-				participants: [{ email: 'grace@vercel.com' }],
+				participants: [{ email: 'grace.hopper@vercel.com' }],
 				when: { object: 'timespan', start_time: now, end_time: now + 3600 },
 			},
 			'work',
@@ -572,7 +604,7 @@ describe('dev mock Nylas client surface', () => {
 		const withParticipants = await mailbox.createEvent(
 			{
 				title: 'RSVP event',
-				participants: [{ email: 'grace@vercel.com' }, { email: 'katherine@vercel.com' }],
+				participants: [{ email: 'grace.hopper@vercel.com' }, { email: 'katherine.johnson@vercel.com' }],
 				when: { object: 'timespan', start_time: now, end_time: now + 3600 },
 			},
 			'work',
@@ -658,7 +690,7 @@ describe('dev mock optional-field defaults', () => {
 		// btoa('a')='YQ==' (2 pad), btoa('hi')='aGk=' (1 pad), btoa('abc')='YWJj' (no pad).
 		// Each padding arm changes the decoded byte count, so all three must be exercised.
 		const sent = await mailbox.send({
-			to: [{ email: 'grace@vercel.com' }],
+			to: [{ email: 'grace.hopper@vercel.com' }],
 			subject: 'Padding sizes',
 			body: 'x',
 			attachments: [
@@ -673,7 +705,7 @@ describe('dev mock optional-field defaults', () => {
 	it('searches a message with an empty body without indexing its stripped html', () => {
 		// A sent message can have an empty body; searchableThreadText must skip stripHtml for it
 		// and still index the subject so the thread is findable.
-		mockSendMessage({ toList: ['grace@vercel.com'], subject: 'EmptyBodyMarker', body: '' })
+		mockSendMessage({ toList: ['grace.hopper@vercel.com'], subject: 'EmptyBodyMarker', body: '' })
 		const found = mockThreads({ searchQueryNative: 'emptybodymarker' }).threads
 		expect(found.map((thread) => thread.subject)).toContain('EmptyBodyMarker')
 	})
@@ -740,5 +772,153 @@ describe('dev mock contact store', () => {
 	it('reports a missing contact as not found when read or updated', () => {
 		expect(() => mockGetContact('contact-missing')).toThrow('Not found')
 		expect(() => mockUpdateContact('contact-missing', { given_name: 'Nobody' })).toThrow('Not found')
+	})
+})
+
+describe('dev mock scheduled sends', () => {
+	const mailbox = createDevMailbox()
+
+	it('cancels the scheduled offsite reply: it leaves its thread and the thread keeps the rest', async () => {
+		const scheduled = (await mailbox.getMessage('msg-offsite-scheduled')).data
+		expect(scheduled.schedule_id).toBe('schedule-offsite-agenda')
+		const threadId = scheduled.thread_id as string
+		await mailbox.cancelScheduledMessage('schedule-offsite-agenda')
+		await expect(mailbox.getMessage('msg-offsite-scheduled')).rejects.toThrow('Not found')
+		const { thread, messages } = mockThreadMessages(threadId)
+		expect(messages.map((message) => message.id)).not.toContain('msg-offsite-scheduled')
+		expect(thread.snippet).toBe(messages.at(-1)?.snippet)
+	})
+
+	it('drops a thread whose only message was the scheduled one', async () => {
+		const sent = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Later', body: 'Soon' })
+		;(await mailbox.getMessage(sent.data.id)).data.schedule_id = 'schedule-later'
+		await mailbox.cancelScheduledMessage('schedule-later')
+		expect(() => mockThreadMessages(sent.data.thread_id as string)).toThrow('Not found')
+	})
+
+	it('reports an unknown schedule as not found', async () => {
+		await expect(mailbox.cancelScheduledMessage('schedule-missing')).rejects.toThrow('Not found')
+	})
+})
+
+describe('dev mock scheduled message kept as a draft', () => {
+	const mailbox = createDevMailbox()
+
+	it('saves every field of a scheduled reply as a draft in its thread, and sends it with them', async () => {
+		const original = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Plans',
+			body: '<p>Plans?</p>',
+		})
+		const threadId = original.data.thread_id as string
+		const created = await mailbox.createDraft({
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			reply_to: [{ email: 'ada.personal@example.com' }],
+			subject: 'Re: Plans',
+			body: '<p><strong>Yes</strong></p>',
+			reply_to_message_id: original.data.id,
+			attachments: [{ filename: 'agenda.txt', content_type: 'text/plain', content: btoa('agenda') }],
+		})
+		const draft = mockDraft(created.data.id)
+		expect(draft).toMatchObject({
+			thread_id: threadId,
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			reply_to: [{ email: 'ada.personal@example.com' }],
+			body: '<p><strong>Yes</strong></p>',
+			reply_to_message_id: original.data.id,
+		})
+		expect(draft.attachments?.map((file) => file.filename)).toEqual(['agenda.txt'])
+		// An edit carries the people it is given; the draft's place in the thread stays.
+		await mailbox.updateDraft(created.data.id, {
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			subject: 'Re: Plans',
+			body: '<p>Yes</p>',
+		})
+		expect(mockDraft(created.data.id)).not.toHaveProperty('bcc')
+		const sent = await mailbox.sendDraft(created.data.id)
+		expect(sent.data).toMatchObject({ thread_id: threadId, cc: [{ email: 'alan@example.com' }] })
+	})
+
+	it('sends a message with Cc and Bcc, and one without', async () => {
+		const withPeople = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			subject: 'Copied',
+			body: 'Hi',
+		})
+		expect(withPeople.data).toMatchObject({
+			cc: [{ email: 'alan@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+		})
+		const blind = await mailbox.createDraft({
+			to: [{ email: 'grace@example.com' }],
+			bcc: [{ email: 'katherine@example.com' }],
+			subject: 'Blind copy',
+			body: 'Hi',
+		})
+		const sentBlind = await mailbox.sendDraft(blind.data.id)
+		expect(sentBlind.data).toMatchObject({ bcc: [{ email: 'katherine@example.com' }] })
+		expect(sentBlind.data).not.toHaveProperty('cc')
+		const without = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			cc: [],
+			subject: 'Plain',
+			body: 'Hi',
+		})
+		expect(without.data).not.toHaveProperty('cc')
+		expect(without.data).not.toHaveProperty('bcc')
+	})
+
+	it('reads a stored message’s files before it is kept as a draft', async () => {
+		const sent = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Files',
+			body: 'Attached',
+			attachments: [{ filename: 'notes.txt', content_type: 'text/plain', content: btoa('notes') }],
+		})
+		const stored = (await mailbox.getMessage(sent.data.id)).data
+		const [file] = stored.attachments ?? []
+		const response = await mailbox.downloadAttachment((file as { id: string }).id, sent.data.id)
+		expect(await response.text()).toBe('Mock file notes.txt')
+		expect(response.headers.get('Content-Type')).toBe('text/plain')
+		// A file the provider gave no type is served as bytes.
+		delete (file as { content_type?: string }).content_type
+		const untyped = await mailbox.downloadAttachment((file as { id: string }).id, sent.data.id)
+		expect(untyped.headers.get('Content-Type')).toBe('application/octet-stream')
+		await expect(mailbox.downloadAttachment('att-missing', sent.data.id)).rejects.toThrow('Not found')
+		const bare = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Bare', body: 'None' })
+		await expect(mailbox.downloadAttachment('att-missing', bare.data.id)).rejects.toThrow('Not found')
+	})
+})
+
+describe('dev mock message read state', () => {
+	const mailbox = createDevMailbox()
+
+	it('marks one message read; its thread stays unread while another message is', async () => {
+		const first = await mailbox.send({ to: [{ email: 'grace@example.com' }], subject: 'Two', body: 'One' })
+		const threadId = first.data.thread_id as string
+		const second = await mailbox.send({
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Two',
+			body: 'Two',
+			reply_to_message_id: first.data.id,
+		})
+		mockUpdateThreadState({ threadId, unread: true })
+		const updated = await mailbox.updateMessage(first.data.id, { unread: false })
+		expect(updated.data.unread).toBe(false)
+		expect(mockThreadMessages(threadId).thread.unread).toBe(true)
+		await mailbox.updateMessage(second.data.id, { unread: false, starred: true, folders: ['sent', 'work'] })
+		const after = (await mailbox.getMessage(second.data.id)).data
+		expect(after).toMatchObject({ unread: false, starred: true, folders: ['sent', 'work'] })
+		expect(mockThreadMessages(threadId).thread.unread).toBe(false)
+		// Nothing asked, nothing changed.
+		await mailbox.updateMessage(second.data.id, {})
+		expect((await mailbox.getMessage(second.data.id)).data).toMatchObject({ unread: false, starred: true })
+		await expect(mailbox.updateMessage('msg-missing', { unread: false })).rejects.toThrow('Not found')
 	})
 })

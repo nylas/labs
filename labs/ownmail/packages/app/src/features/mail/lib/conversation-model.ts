@@ -427,7 +427,8 @@ function participantSummary(messages: MailMessage[], own: string): { count: numb
 const keysOf = (people: Person[] | undefined): string[] =>
 	(people ?? []).map((person) => addressKey(person.email)).filter(Boolean)
 
-const normalSubject = (subject: string | undefined): string =>
+/** A subject without its Re:/Fwd: prefixes and with its whitespace collapsed. */
+export const normalSubject = (subject: string | undefined): string =>
 	(subject ?? '').replace(SUBJECT_PREFIX, '').replace(/\s+/g, ' ').trim()
 
 /**

@@ -20,6 +20,10 @@ vi.mock('@upstash/redis', () => ({
 	},
 }))
 
+// The repository's local builds carry the mock mailbox; deployed ones answer null.
+const devMocks = () => ({ devMocks: {} })
+vi.mock('./dev-mailbox.js', () => devMocks())
+
 /**
  * platform() memoizes at module scope and branches on the process env plus the
  * availability of the `cloudflare:workers` module. Every case therefore resets
@@ -304,6 +308,22 @@ describe('platform()', () => {
 		const { platform } = await import('./platform.js')
 
 		await expect(platform()).rejects.toThrow('SESSION_SECRET not configured')
+	})
+
+	it('ignores the mock flag in a build without the mock mailbox', async () => {
+		vi.doMock('./dev-mailbox.js', () => ({ devMocks: null }))
+		vi.doMock('cloudflare:workers', () => {
+			throw new Error('not a workers runtime')
+		})
+		try {
+			setEnv({ ...REQUIRED_ENV, OWNMAIL_DEV_MOCKS: '1', NODE_ENV: 'development', SESSION_SECRET: 's' })
+			const { platform, usingDevMocks } = await import('./platform.js')
+
+			expect((await platform()).runtime).toBe('node')
+			expect(await usingDevMocks()).toBe(false)
+		} finally {
+			vi.doMock('./dev-mailbox.js', devMocks)
+		}
 	})
 
 	it('does not treat production as dev mocks even with the flag and a node fallback', async () => {

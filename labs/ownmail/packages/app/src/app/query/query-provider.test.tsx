@@ -76,6 +76,15 @@ describe('server state version normalization', () => {
 	})
 })
 
+type InvalidateOptions = { predicate?: (query: never) => boolean; refetchType?: string } | undefined
+const matches = (options: InvalidateOptions, queryKey: unknown[]) =>
+	options?.predicate?.({ queryKey } as never) === true
+/** A refresh of everything the app holds, except the lookups kept for the session. */
+const fullRefresh = (options: InvalidateOptions) =>
+	options?.refetchType === 'active' && matches(options, ['mail']) && matches(options, ['contacts'])
+/** A refresh of mail alone. */
+const mailOnly = (options: InvalidateOptions) => matches(options, ['mail']) && !matches(options, ['contacts'])
+
 describe('server state synchronization', () => {
 	it('establishes a baseline and invalidates only domains whose versions changed', async () => {
 		routerState.pathname = '/mail/f/inbox'
@@ -96,7 +105,7 @@ describe('server state synchronization', () => {
 			</OwnmailQueryProvider>,
 		)
 		await act(async () => {})
-		expect(invalidate).toHaveBeenCalledWith({ refetchType: 'active' })
+		expect(fullRefresh(invalidate.mock.calls[0]?.[0])).toBe(true)
 
 		await act(async () => vi.advanceTimersByTimeAsync(10_000))
 		expect(fetchMock).toHaveBeenCalledTimes(2)
@@ -105,10 +114,25 @@ describe('server state synchronization', () => {
 		expect(scoped[0]?.predicate?.({ queryKey: ['mail'] } as never)).toBe(true)
 		expect(scoped[0]?.predicate?.({ queryKey: ['contacts'] } as never)).toBe(false)
 		expect(scoped[1]?.predicate?.({ queryKey: ['calendar'] } as never)).toBe(true)
+		// Lookups kept for the session are never asked again by a refresh: each costs paged provider calls.
+		for (const key of [
+			['mail', 'a', 'thread-header-facts', 't1', 'm1'],
+			['mail', 'a', 'thread-list-unsubscribe', 't1', 'm1'],
+			['mail-side-thread', 'a', 't1', 'plans'],
+		]) {
+			expect(matches(scoped[0], key)).toBe(false)
+			expect(matches(invalidate.mock.calls[0]?.[0], key)).toBe(false)
+		}
+		expect(matches(scoped[0], ['mail', 'a', 'thread', 't1'])).toBe(true)
+		// A row's unread summary is asked again: mail read in another tab or device stops counting as new.
+		expect(matches(scoped[0], ['mail', 'a', 'thread-unread-summary', 't1', 'm1'])).toBe(true)
+		expect(matches(invalidate.mock.calls[0]?.[0], ['mail', 'a', 'thread-unread-summary', 't1', 'm1'])).toBe(
+			true,
+		)
 
 		await act(async () => vi.advanceTimersByTimeAsync(60_000))
 		expect(fetchMock).toHaveBeenCalledTimes(8)
-		expect(invalidate).toHaveBeenLastCalledWith({ refetchType: 'active' })
+		expect(fullRefresh(invalidate.mock.calls.at(-1)?.[0])).toBe(true)
 
 		view.unmount()
 	})
@@ -131,7 +155,7 @@ describe('server state synchronization', () => {
 		await act(async () => {})
 
 		expect(fetchMock).toHaveBeenCalledTimes(1)
-		expect(invalidate).toHaveBeenCalledWith({ refetchType: 'active' })
+		expect(fullRefresh(invalidate.mock.calls[0]?.[0])).toBe(true)
 	})
 
 	it('revalidates active mail queries after a mail version change', async () => {
@@ -151,9 +175,7 @@ describe('server state synchronization', () => {
 		await act(async () => vi.advanceTimersByTimeAsync(10_000))
 		await act(async () => vi.advanceTimersByTimeAsync(5_000))
 
-		const mailInvalidations = invalidate.mock.calls.filter(
-			([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
-		)
+		const mailInvalidations = invalidate.mock.calls.filter(([options]) => mailOnly(options))
 		expect(mailInvalidations).toHaveLength(3)
 		view.unmount()
 	})
@@ -177,9 +199,7 @@ describe('server state synchronization', () => {
 		visibility.mockReturnValue('hidden')
 		await act(async () => vi.advanceTimersByTimeAsync(5_000))
 
-		const mailInvalidations = invalidate.mock.calls.filter(
-			([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
-		)
+		const mailInvalidations = invalidate.mock.calls.filter(([options]) => mailOnly(options))
 		expect(mailInvalidations).toHaveLength(1)
 		view.unmount()
 	})
@@ -344,10 +364,7 @@ describe('server state synchronization', () => {
 				async () => new Response(JSON.stringify({ domains: { mail: 2, contacts: 1, calendar: 1 } })),
 			)
 		const invalidate = vi.spyOn(QueryClient.prototype, 'invalidateQueries').mockResolvedValue()
-		const mailInvalidations = () =>
-			invalidate.mock.calls.filter(
-				([options]) => options?.predicate?.({ queryKey: ['mail'] } as never) === true,
-			).length
+		const mailInvalidations = () => invalidate.mock.calls.filter(([options]) => mailOnly(options)).length
 		const child = <div>route</div>
 		const view = render(<OwnmailQueryProvider>{child}</OwnmailQueryProvider>)
 		await act(async () => {})

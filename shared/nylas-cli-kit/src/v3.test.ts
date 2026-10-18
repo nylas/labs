@@ -660,6 +660,22 @@ describe('NylasV3Client', () => {
 		expect(response.data.raw_mime).toBe('TUlNRS1WZXJzaW9uOiAxLjA')
 	})
 
+	it('cancels a scheduled message by its schedule id', async () => {
+		let requestUrl = ''
+		let requestMethod = ''
+		const fetchImpl: typeof fetch = async (input, init) => {
+			requestUrl = String(input)
+			requestMethod = init?.method ?? 'GET'
+			return new Response(null, { status: 204 })
+		}
+		const mailbox = new NylasV3Client('api-key-123', 'us', fetchImpl).forGrant('grant-123')
+
+		await mailbox.cancelScheduledMessage('sched#1')
+
+		expect(requestMethod).toBe('DELETE')
+		expect(requestUrl).toBe('https://api.us.nylas.com/v3/grants/grant-123/messages/schedules/sched%231')
+	})
+
 	it('performs the full contact CRUD cycle against grant-scoped contact endpoints', async () => {
 		const calls: { method: string; url: string; body: unknown }[] = []
 		const fetchImpl: typeof fetch = async (input, init) => {

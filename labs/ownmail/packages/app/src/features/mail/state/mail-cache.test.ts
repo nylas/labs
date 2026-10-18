@@ -2,6 +2,7 @@ import { QueryClient } from '@tanstack/react-query'
 import { describe, expect, it, vi } from 'vitest'
 import {
 	applyMailCacheEffect,
+	cachedCorrespondents,
 	createMailOptimisticManager,
 	dedupeThreadPages,
 	dedupeThreads,
@@ -11,6 +12,7 @@ import {
 	safeSentMessage,
 	sentThreadFromMessage,
 	systemFolderBeforeMove,
+	threadAfterSend,
 	threadFoldersAfterCacheMove,
 	updateDrafts,
 	updateFolderCounts,
@@ -281,6 +283,157 @@ describe('mail query cache effects', () => {
 		expect(client.getQueryData<MailDraft[]>(mailKeys.drafts())).toEqual([])
 	})
 
+	it('keeps a thread you reply in where it was, ending with your reply, and drops discarded drafts from it', () => {
+		const client = seedClient()
+		const draft: MailMessage = { id: 'd1', thread_id: 't1', ownmailDraft: true }
+		const first: MailMessage = { id: 'm1', thread_id: 't1' }
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), {
+			thread: { ...t1, unread: false, message_ids: ['m1'] },
+			messages: [first, draft],
+			mailboxEmail: 'me@example.com',
+		})
+		const reply: MailMessage = {
+			id: 'm2',
+			thread_id: 't1',
+			snippet: 'Sounds good',
+			date: 200,
+			folders: ['sent'],
+			attachments: [{ id: 'a1', filename: 'x.pdf' }],
+		}
+		applyMailCacheEffect(client, { type: 'draft.sent', draftId: 'd1', message: reply })
+		const inbox = cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]
+		expect(inbox).toMatchObject({
+			id: 't1',
+			snippet: 'Sounds good',
+			message_ids: ['m2'],
+			latest_message_sent_date: 200,
+			has_attachments: true,
+			folders: ['inbox', 'work', 'sent'],
+		})
+		expect(cachedList(client, { folderId: 'sent' }).pages[0]?.threads[0]?.id).toBe('t1')
+		const detail = client.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+		expect(detail?.messages.map((message) => message.id)).toEqual(['m1', 'm2'])
+		expect(detail?.thread.folders).toEqual(['inbox', 'work', 'sent'])
+		expect(detail?.thread.message_ids).toEqual(['m1', 'm2'])
+		// Inbox already counted the thread; only Sent gains it.
+		expect(cachedFolders(client).find((folder) => folder.id === 'inbox')?.total_count).toBe(2)
+		expect(cachedFolders(client).find((folder) => folder.id === 'sent')?.total_count).toBe(1)
+
+		// A reply without its own text or files keeps what the thread had.
+		applyMailCacheEffect(client, {
+			type: 'draft.sent',
+			draftId: 'd9',
+			message: { id: 'm3', thread_id: 't1' },
+		})
+		expect(cachedList(client, { folderId: 'inbox' }).pages[0]?.threads[0]).toMatchObject({
+			snippet: 'Sounds good',
+			latest_message_sent_date: 200,
+			message_ids: ['m2', 'm3'],
+		})
+		// A receipt that names the thread, without the message, replaces it as given.
+		const canonical = { ...t1, subject: 'Canonical' }
+		applyMailCacheEffect(client, { type: 'draft.sent', draftId: 'd8', thread: canonical })
+		expect(client.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))?.thread.subject).toBe(
+			'Canonical',
+		)
+		expect(
+			client
+				.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+				?.messages.map((message) => message.id),
+		).toEqual(['m1', 'm2', 'm3'])
+
+		// A discarded draft leaves the thread it sat in; other threads are untouched.
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), (current) =>
+			current ? { ...current, messages: [...current.messages, { id: 'd2', ownmailDraft: true }] } : current,
+		)
+		const before = client.getQueryData(mailKeys.threadDetail('t1'))
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'other' })
+		expect(client.getQueryData(mailKeys.threadDetail('t1'))).toBe(before)
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd2' })
+		expect(
+			client
+				.getQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'))
+				?.messages.map((message) => message.id),
+		).toEqual(['m1', 'm2', 'm3'])
+	})
+
+	it('takes a discarded draft out of the list rows it led, at once', () => {
+		const client = new QueryClient()
+		const draft: MailMessage = {
+			id: 'd1',
+			thread_id: 't1',
+			ownmailDraft: true,
+			snippet: 'Could we move this?',
+		}
+		const answered: MailMessage = { id: 'm1', thread_id: 't1', snippet: 'Your appointment is Thursday.' }
+		const led = {
+			...t1,
+			snippet: 'Could we move this?',
+			latest_draft_or_message: draft,
+			draft_ids: ['d1', 'd5'],
+		}
+		// A provider that does not list the thread's drafts still leads the row with one.
+		const unknown = { ...t1, id: 't2', latest_draft_or_message: { id: 'd2', thread_id: 't2' } }
+		const listed = {
+			...t1,
+			id: 't3',
+			latest_draft_or_message: { id: 'm9', thread_id: 't3' },
+			draft_ids: ['d3'],
+		}
+		const other = { ...t1, id: 't4' }
+		client.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), list(led, unknown, listed, other))
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t1'), {
+			thread: t1,
+			messages: [answered, { id: 'd5', ownmailDraft: true }, draft],
+			mailboxEmail: 'me@example.com',
+		})
+		// A loaded conversation of nothing but drafts has no message to show instead.
+		client.setQueryData<MailThreadDetail>(mailKeys.threadDetail('t2'), {
+			thread: { ...t1, id: 't2' },
+			messages: [{ id: 'd2', ownmailDraft: true }],
+			mailboxEmail: 'me@example.com',
+		})
+		const rows = () => cachedList(client, { folderId: 'inbox' }).pages[0]?.threads as MailThread[]
+
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd1' })
+		// The row now shows the thread's newest message, and keeps its other draft.
+		expect(rows()[0]).toMatchObject({
+			snippet: 'Your appointment is Thursday.',
+			latest_draft_or_message: { id: 'm1' },
+			draft_ids: ['d5'],
+		})
+		expect(rows()[3]).toBe(other)
+
+		// With no loaded conversation to say what came before, the row keeps its own snippet and people.
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd2' })
+		expect(rows()[1]).not.toHaveProperty('latest_draft_or_message')
+		expect(rows()[1]).not.toHaveProperty('draft_ids')
+		// A draft the row lists but does not lead leaves the row's latest message alone.
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'd3' })
+		expect(rows()[2]).toMatchObject({ latest_draft_or_message: { id: 'm9' } })
+		expect(rows()[2]).not.toHaveProperty('draft_ids')
+		// A draft no row knows changes nothing.
+		const before = cachedList(client, { folderId: 'inbox' })
+		applyMailCacheEffect(client, { type: 'draft.deleted', draftId: 'nowhere' })
+		expect(cachedList(client, { folderId: 'inbox' })).toBe(before)
+	})
+
+	it('adds a reply to a thread that lists no folders or messages yet', () => {
+		expect(threadAfterSend({ id: 't9' }, { id: 'm1', thread_id: 't9' })).toMatchObject({
+			message_ids: ['m1'],
+			has_attachments: false,
+			folders: ['sent'],
+		})
+		// A sent message without a thread is a thread of its own.
+		const client = seedClient()
+		applyMailCacheEffect(client, {
+			type: 'draft.sent',
+			draftId: 'd1',
+			message: { id: 'solo', folders: ['sent'] },
+		})
+		expect(cachedList(client, { folderId: 'sent' }).pages[0]?.threads[0]?.id).toBe('solo')
+	})
+
 	it('reconciles canonical threads and folders and ignores unrelated cache entries', () => {
 		const client = seedClient()
 		client.setQueryData(['not-mail'], { unchanged: true })
@@ -433,7 +586,16 @@ describe('mail optimistic transaction journal', () => {
 
 		read.commit()
 		// Nothing else tells the screen what the server holds after a failure.
-		expect(invalidate).toHaveBeenCalledExactlyOnceWith({ queryKey: mailKeys.all, refetchType: 'active' })
+		expect(invalidate).toHaveBeenCalledExactlyOnceWith({
+			queryKey: mailKeys.all,
+			predicate: expect.any(Function),
+			refetchType: 'active',
+		})
+		// Header lookups and row summaries are kept for the session; the refetch leaves them be.
+		const [[options]] = invalidate.mock.calls as unknown as [[{ predicate: (query: unknown) => boolean }]]
+		const { predicate } = options
+		expect(predicate({ queryKey: mailKeys.threadDetail('t1') })).toBe(true)
+		expect(predicate({ queryKey: mailKeys.threadHeaderFacts('t1', 'm1') })).toBe(false)
 	})
 
 	it('does not refetch active queries after a commit, whose receipt is already authoritative', async () => {
@@ -508,6 +670,40 @@ describe('mail optimistic transaction journal', () => {
 		expect(client.getQueryState(listKey)?.fetchStatus).toBe('idle')
 	})
 
+	it('never cancels header lookups, so a thread opened unread keeps its header facts', async () => {
+		const client = seedClient()
+		const factsKey = mailKeys.threadHeaderFacts('t1')
+		const unsubscribeKey = mailKeys.threadListUnsubscribe('t1')
+		const rawKey = mailKeys.messageRawHeaders('m1')
+		// The thread list's per-row unread summary is a read-only lookup too.
+		const summaryKey = [...mailKeys.all, 'thread-unread-summary', 't1', 'm1']
+		let resolveFacts: (facts: { byMessage: Record<string, never> }) => void = () => {}
+		const facts = client.fetchQuery({
+			queryKey: factsKey,
+			queryFn: () => new Promise<{ byMessage: Record<string, never> }>((resolve) => (resolveFacts = resolve)),
+			retry: false,
+		})
+		const never = () => new Promise<never>(() => {})
+		void client.fetchQuery({ queryKey: unsubscribeKey, queryFn: never }).catch(() => {})
+		void client.fetchQuery({ queryKey: rawKey, queryFn: never }).catch(() => {})
+		void client.fetchQuery({ queryKey: summaryKey, queryFn: never }).catch(() => {})
+		const manager = createMailOptimisticManager(client)
+
+		const read = await manager.begin(
+			{ type: 'thread.read', threadId: 't1', unread: false },
+			{ preserveThreadDetails: true },
+		)
+		await manager.begin({ type: 'thread.starred', threadId: 't1', starred: true })
+		read.commit()
+		resolveFacts({ byMessage: {} })
+
+		await expect(facts).resolves.toEqual({ byMessage: {} })
+		expect(client.getQueryState(factsKey)).toMatchObject({ status: 'success', fetchStatus: 'idle' })
+		expect(client.getQueryState(unsubscribeKey)?.fetchStatus).toBe('fetching')
+		expect(client.getQueryState(rawKey)?.fetchStatus).toBe('fetching')
+		expect(client.getQueryState(summaryKey)?.fetchStatus).toBe('fetching')
+	})
+
 	it('rolls back one failed operation without erasing a newer optimistic operation', async () => {
 		const client = seedClient()
 		const manager = createMailOptimisticManager(client)
@@ -575,5 +771,35 @@ describe('systemFolderBeforeMove', () => {
 	it('ignores views and labels, which a move does not take a conversation out of', () => {
 		expect(systemFolderBeforeMove(['starred', 'drafts', 'work'])).toBeUndefined()
 		expect(systemFolderBeforeMove(undefined)).toBeUndefined()
+	})
+})
+
+describe('cachedCorrespondents', () => {
+	it('knows each named person of the listed conversations once, never the owner or a bare address', () => {
+		const client = new QueryClient()
+		client.setQueryData(mailKeys.threadList({ folderId: 'inbox' }), {
+			pages: [
+				{
+					threads: [
+						{
+							id: 'bank',
+							participants: [
+								{ name: 'Meridian Bank', email: 'Statements@MeridianBank.com' },
+								{ name: 'Me', email: 'me@x.com' },
+								{ email: 'noname@x.com' },
+							],
+						},
+						{ id: 'again', participants: [{ name: 'Meridian', email: 'statements@meridianbank.com' }] },
+						{ id: 'none' },
+					],
+				},
+			],
+			pageParams: [undefined],
+		})
+		// A list still loading has no data yet.
+		client.getQueryCache().build(client, { queryKey: mailKeys.threadList({ folderId: 'empty' }) })
+		expect(cachedCorrespondents(client, 'me@x.com')).toEqual([
+			{ name: 'Meridian Bank', email: 'Statements@MeridianBank.com', isOwner: false },
+		])
 	})
 })

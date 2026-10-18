@@ -22,7 +22,7 @@ function savePreferences(next: Partial<UserPreferences>) {
 /** The divider between a list and a reader, in panes of the given size. */
 function renderPanes({
 	panes = { width: 1200, height: 800 },
-	list = { left: 100, top: 50, width: 352, height: 320 },
+	list = { left: 100, top: 50, width: 360, height: 320 },
 	style,
 }: {
 	panes?: Partial<DOMRect>
@@ -77,8 +77,8 @@ describe('ReadingPaneDivider', () => {
 		expect(handle).toHaveAccessibleName('Resize conversation list')
 		expect(handle).toHaveAttribute('tabindex', '0')
 		expect(handle).toHaveAttribute('aria-orientation', 'vertical')
-		expect(handle).toHaveAttribute('aria-valuenow', '352')
-		expect(handle).toHaveAttribute('aria-valuetext', '352 pixels wide')
+		expect(handle).toHaveAttribute('aria-valuenow', '360')
+		expect(handle).toHaveAttribute('aria-valuetext', '360 pixels wide')
 		expect(handle).toHaveClass('cursor-col-resize')
 		expect(handle.parentElement).toHaveClass('hidden', 'xl:block', 'w-0')
 
@@ -221,14 +221,14 @@ describe('ReadingPaneDivider', () => {
 		act(() => {
 			fireEvent.keyDown(handle, { key: 'ArrowRight' })
 		})
-		expect(readUserPreferences().readingPaneListWidth).toBe(368)
+		expect(readUserPreferences().readingPaneListWidth).toBe(376)
 		act(() => {
 			fireEvent.keyDown(handle, { key: 'ArrowLeft' })
 		})
-		expect(readUserPreferences().readingPaneListWidth).toBe(336)
+		expect(readUserPreferences().readingPaneListWidth).toBe(344)
 		// Keys across the split change nothing.
 		fireEvent.keyDown(handle, { key: 'ArrowDown' })
-		expect(readUserPreferences().readingPaneListWidth).toBe(336)
+		expect(readUserPreferences().readingPaneListWidth).toBe(344)
 
 		vi.spyOn(list, 'getBoundingClientRect').mockReturnValue(rect({ width: 250 }))
 		act(() => {

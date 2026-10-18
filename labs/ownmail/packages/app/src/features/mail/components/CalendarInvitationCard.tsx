@@ -1,14 +1,19 @@
 /* Hallmark · pre-emit critique: P5 H5 E5 S5 R5 V5 */
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query'
-import { AlertTriangle, CalendarDays, Check, Clock3, Loader2, MapPin } from 'lucide-react'
+import { AlertTriangle, Calendar, CalendarDays, Check, Loader2, MapPin } from 'lucide-react'
+import { useId, useState } from 'react'
 import { firstCalendarInvitationAttachment } from '#features/calendar/lib/calendar-invitation'
 import type {
 	CalendarInvitationDetails,
 	InvitationWhen,
 } from '#features/calendar/server/calendar-invitation-fns'
 import { calendarKeys } from '#features/calendar/state/calendar-keys'
+import { useMounted } from '#shared/components/ClientTime'
 import { cn } from '#shared/lib/utils'
+import { clockTime, viewerZone } from '../lib/edge-states.js'
+import { shortDayLabel } from '../lib/thread-reading-model.js'
 import type { MailMessage } from '../state/mail-queries.js'
+import { EDGE_BUTTON_CLASS, EDGE_GHOST_CLASS, EDGE_LINK_CLASS } from './edge-actions.js'
 
 const RESPONSE_OPTIONS = [
 	{ status: 'yes', label: 'Accept' },
@@ -19,7 +24,45 @@ const RESPONSE_OPTIONS = [
 const SYNC_RETRY_INTERVAL_MS = 2_000
 const SYNC_LOOKUP_LIMIT = 5
 
-export function CalendarInvitationCard({ message }: { message: MailMessage }) {
+/**
+ * The time an invitation file itself proposes. The card's details describe the
+ * event as it is now, so an earlier version's own time comes from its file.
+ */
+function useInvitationFileTime(message: MailMessage | undefined, enabled: boolean) {
+	const attachment = message ? firstCalendarInvitationAttachment(message.attachments) : undefined
+	const messageId = message?.id ?? ''
+	const attachmentId = attachment?.id ?? ''
+	return useQuery({
+		queryKey: [...calendarKeys.invitation(messageId, attachmentId), 'file-time'],
+		queryFn: async () => {
+			const { getInvitationFileTime } = await import('../server/invitation-file-time.js')
+			return getInvitationFileTime({ data: { messageId, attachmentId } })
+		},
+		enabled: enabled && attachmentId !== '',
+		staleTime: Number.POSITIVE_INFINITY,
+		retry: false,
+	})
+}
+
+/**
+ * A meeting request in a message. When the event was updated in this thread
+ * (design.md "Edge states"), only the newest invitation renders this card: it
+ * says how many times the event changed, shows the earlier start struck
+ * through beside the current one, and keeps the earlier versions one click
+ * away. `previousStartTime` is read from the newest earlier version when the
+ * caller does not know it.
+ */
+export function CalendarInvitationCard({
+	message,
+	updateCount,
+	previousStartTime,
+	earlierVersions,
+}: {
+	message: MailMessage
+	updateCount?: number
+	previousStartTime?: number
+	earlierVersions?: MailMessage[]
+}) {
 	const attachment = firstCalendarInvitationAttachment(message.attachments)
 	if (!attachment) return null
 	return (
@@ -27,11 +70,31 @@ export function CalendarInvitationCard({ message }: { message: MailMessage }) {
 			key={`${message.id}:${attachment.id}`}
 			messageId={message.id}
 			attachmentId={attachment.id}
+			history={{
+				...(updateCount !== undefined ? { updateCount } : {}),
+				...(previousStartTime !== undefined ? { previousStartTime } : {}),
+				earlierVersions: earlierVersions ?? [],
+			}}
 		/>
 	)
 }
 
-function CalendarInvitationContent({ messageId, attachmentId }: { messageId: string; attachmentId: string }) {
+type InvitationHistory = { updateCount?: number; previousStartTime?: number; earlierVersions: MailMessage[] }
+
+function CalendarInvitationContent({
+	messageId,
+	attachmentId,
+	history,
+}: {
+	messageId: string
+	attachmentId: string
+	history: InvitationHistory
+}) {
+	const [versionsOpen, setVersionsOpen] = useState(false)
+	const versionsId = useId()
+	const previousVersion = history.earlierVersions.at(-1)
+	const previous = useInvitationFileTime(previousVersion, history.previousStartTime === undefined)
+	const previousStart = history.previousStartTime ?? previous.data?.start
 	const queryClient = useQueryClient()
 	const queryKey = calendarKeys.invitation(messageId, attachmentId)
 	const invitation = useQuery({
@@ -79,7 +142,10 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		},
 	})
 
-	if (invitation.isPending) {
+	// The server never has the invitation, and a lookup it started may reach the
+	// browser before hydration: the first browser render matches the server's.
+	const mounted = useMounted()
+	if (invitation.isPending || !mounted) {
 		return (
 			<section
 				data-slot="calendar-invitation"
@@ -164,82 +230,105 @@ function CalendarInvitationContent({ messageId, attachmentId }: { messageId: str
 		)
 	}
 	const canRespond = details.canRespond !== false
+	const anySelected = RESPONSE_OPTIONS.some((option) => option.status === details.status)
+	const changed =
+		previousStart !== undefined && details.when.kind === 'timed' && previousStart !== details.when.start
 	return (
 		<section
 			data-slot="calendar-invitation"
 			aria-labelledby={`invitation-title-${attachmentId}`}
-			className="mb-5 overflow-hidden rounded-xl border border-border bg-card shadow-sm"
+			className="mb-5 flex flex-col gap-2 rounded-md border border-border bg-card p-3 text-[13px] text-foreground"
 		>
-			<div className="px-4 py-4 sm:px-5">
-				<div className="flex min-w-0 items-start gap-3">
-					<div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-						<CalendarDays className="h-5 w-5" />
-					</div>
-					<div className="min-w-0 flex-1">
-						<p className="text-xs font-semibold tracking-wide text-primary uppercase">Calendar invitation</p>
-						<h2
-							id={`invitation-title-${attachmentId}`}
-							className="mt-1 font-display text-lg font-semibold text-balance [overflow-wrap:anywhere]"
-						>
-							{details.title}
-						</h2>
-						<p className="mt-1 text-sm text-muted-foreground [overflow-wrap:anywhere]">
-							From {details.organizer}
-						</p>
-					</div>
-				</div>
-
-				<div className="mt-4 grid gap-2 text-sm text-foreground">
-					<div className="flex items-start gap-2.5">
-						<Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-						<span>{formatInvitationWhen(details.when)}</span>
-					</div>
-					{details.location ? (
-						<div className="flex items-start gap-2.5">
-							<MapPin className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-							<span className="[overflow-wrap:anywhere]">{details.location}</span>
-						</div>
-					) : null}
-				</div>
-
-				<ConflictNotice conflicts={details.conflicts} />
-
-				<div className="mt-4 flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
-					<p className="text-sm font-medium text-muted-foreground" aria-live="polite">
-						{canRespond ? responseLabel(details.status) : 'Added to your calendar'}
-					</p>
-					{canRespond ? (
-						<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
-							<legend className="sr-only">Respond to invitation</legend>
-							{RESPONSE_OPTIONS.map((option) => {
-								const selected = details.status === option.status
-								return (
-									<button
-										key={option.status}
-										type="button"
-										aria-pressed={selected}
-										onClick={() => response.mutate(option.status)}
-										className={cn(
-											'inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg border px-3.5 py-2 text-sm font-semibold transition-colors focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-offset-2 forced-colors:focus-visible:outline-solid disabled:pointer-events-none disabled:opacity-60',
-											selected
-												? 'border-primary bg-primary text-primary-foreground'
-												: 'border-border bg-background text-foreground hover:bg-accent',
-										)}
-									>
-										{selected ? <Check className="h-3.5 w-3.5" /> : null}
-										{option.label}
-									</button>
-								)
-							})}
-						</fieldset>
-					) : null}
-				</div>
-				{canRespond && response.isError ? (
-					<p role="alert" className="mt-3 rounded-lg bg-destructive/10 px-3 py-2 text-sm text-destructive">
-						Your response wasn’t saved. Check your connection, then try again.
-					</p>
+			<p className="sr-only">Calendar invitation</p>
+			<div className="flex min-w-0 items-center gap-2">
+				<Calendar aria-hidden="true" className="size-3.5 shrink-0" />
+				<h2
+					id={`invitation-title-${attachmentId}`}
+					className="m-0 min-w-0 text-[13px] font-semibold [overflow-wrap:anywhere]"
+				>
+					{details.title}
+				</h2>
+				{history.updateCount ? (
+					<span data-slot="invitation-updates" className="ml-auto shrink-0 text-xs text-muted-foreground">
+						Updated {history.updateCount} {history.updateCount === 1 ? 'time' : 'times'}
+					</span>
 				) : null}
 			</div>
+			<p className="m-0 font-data tabular-nums">
+				{formatInvitationWhen(details.when)}
+				{changed ? (
+					<>
+						{' '}
+						<s data-slot="invitation-previous-time" className="text-muted-foreground">
+							<span className="sr-only">was </span>
+							{previousTimeLabel(previousStart, (details.when as { start: number }).start)}
+						</s>
+					</>
+				) : null}
+			</p>
+			<p className="m-0 flex min-w-0 flex-wrap gap-x-1 text-xs text-muted-foreground [overflow-wrap:anywhere]">
+				<span>From {details.organizer}</span>
+				{details.location ? (
+					<>
+						<span aria-hidden="true">·</span>
+						<span className="inline-flex items-center gap-1">
+							<MapPin aria-hidden="true" className="size-3 shrink-0" />
+							{details.location}
+						</span>
+					</>
+				) : null}
+			</p>
+
+			<ConflictNotice conflicts={details.conflicts} />
+
+			<div className="flex flex-wrap items-center gap-2">
+				{canRespond ? (
+					<fieldset className="flex min-w-0 flex-wrap gap-2 border-0 p-0" disabled={response.isPending}>
+						<legend className="sr-only">Respond to invitation</legend>
+						{RESPONSE_OPTIONS.map((option, index) => {
+							const selected = details.status === option.status
+							// The chosen answer, or Accept as the first choice before any answer, is the bordered one.
+							const bordered = selected || (!anySelected && index === 0)
+							return (
+								<button
+									key={option.status}
+									type="button"
+									aria-pressed={selected}
+									onClick={() => response.mutate(option.status)}
+									className={bordered ? EDGE_BUTTON_CLASS : EDGE_GHOST_CLASS}
+								>
+									{selected ? <Check aria-hidden="true" className="size-3" /> : null}
+									{option.label}
+								</button>
+							)
+						})}
+					</fieldset>
+				) : (
+					<span className="text-xs text-muted-foreground">Added to your calendar</span>
+				)}
+				{history.earlierVersions.length > 0 ? (
+					<button
+						type="button"
+						aria-expanded={versionsOpen}
+						aria-controls={versionsId}
+						onClick={() => setVersionsOpen((open) => !open)}
+						className={cn(EDGE_LINK_CLASS, 'ml-auto')}
+					>
+						Earlier versions
+					</button>
+				) : null}
+			</div>
+			{canRespond ? (
+				<p className="sr-only" aria-live="polite">
+					{responseLabel(details.status)}
+				</p>
+			) : null}
+			{versionsOpen ? <EarlierVersions id={versionsId} versions={history.earlierVersions} /> : null}
+			{canRespond && response.isError ? (
+				<p role="alert" className="m-0 rounded-md bg-destructive/10 px-3 py-2 text-xs text-destructive">
+					Your response wasn’t saved. Check your connection, then try again.
+				</p>
+			) : null}
 		</section>
 	)
 }
@@ -249,18 +338,12 @@ function ConflictNotice({
 }: {
 	conflicts: Extract<CalendarInvitationDetails, { state: 'ready' }>['conflicts']
 }) {
-	if (conflicts.state === 'clear') {
-		return (
-			<p className="mt-4 flex items-center gap-2 rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800 dark:text-emerald-300">
-				<Check className="h-4 w-4 shrink-0" />
-				No conflicts on your calendar
-			</p>
-		)
-	}
+	// A clear calendar needs no words; the resting card stays as compact as the board draws it.
+	if (conflicts.state === 'clear') return null
 	if (conflicts.state === 'unknown') {
 		return (
-			<p className="mt-4 flex items-start gap-2 rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground">
-				<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+			<p className="m-0 flex items-start gap-2 rounded-md bg-muted px-3 py-2 text-xs text-muted-foreground">
+				<AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
 				We couldn’t check your full schedule. Review your calendar before responding.
 			</p>
 		)
@@ -268,9 +351,9 @@ function ConflictNotice({
 	return (
 		<p
 			role="alert"
-			className="mt-4 flex items-start gap-2 rounded-lg bg-amber-500/12 px-3 py-2 text-sm text-amber-900 dark:text-amber-200"
+			className="m-0 flex items-start gap-2 rounded-md border border-notice-warning-line bg-notice-warning px-3 py-2 text-xs text-notice-warning-foreground"
 		>
-			<AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+			<AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
 			This overlaps with {conflicts.count} {conflicts.count === 1 ? 'event' : 'events'} on your calendar.
 		</p>
 	)
@@ -338,6 +421,42 @@ function InvitationNotice({
 	)
 }
 
+/** The earlier start, as short as it can be: the time alone on the same day, else the day too. */
+function previousTimeLabel(previous: number, current: number): string {
+	const day = (seconds: number) => new Date(seconds * 1_000).toDateString()
+	const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' }).format(previous * 1_000)
+	if (day(previous) === day(current)) return time
+	return `${new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' }).format(previous * 1_000)} · ${time}`
+}
+
+/** Each earlier invitation of the event, newest first: the time it proposed (struck) and when it was sent. */
+function EarlierVersions({ id, versions }: { id: string; versions: MailMessage[] }) {
+	return (
+		<ol id={id} className="m-0 flex list-none flex-col gap-1 p-0 text-xs text-muted-foreground">
+			{[...versions].reverse().map((version) => (
+				<EarlierVersion key={version.id} version={version} />
+			))}
+		</ol>
+	)
+}
+
+function EarlierVersion({ version }: { version: MailMessage }) {
+	const file = useInvitationFileTime(version, true)
+	const proposed = file.data ? formatInvitationWhen({ kind: 'timed', ...file.data }) : null
+	const now = Date.now()
+	const tz = viewerZone()
+	const sent = version.date
+		? `Sent ${shortDayLabel(version.date, now, tz)} ${clockTime(version.date, tz)}`
+		: 'Sent earlier'
+	return (
+		<li className="font-data">
+			{proposed ? <s>{proposed}</s> : null}
+			{proposed ? ' · ' : null}
+			{sent}
+		</li>
+	)
+}
+
 function responseLabel(status: 'yes' | 'no' | 'maybe' | 'noreply'): string {
 	if (status === 'yes') return 'You accepted'
 	if (status === 'maybe') return 'You replied maybe'
@@ -345,20 +464,29 @@ function responseLabel(status: 'yes' | 'no' | 'maybe' | 'noreply'): string {
 	return 'Awaiting your response'
 }
 
+const PERIOD = /\s?([AP]M)$/i
+
+/** "Thu, Oct 22 · 2:00–2:45 PM", "All day · Sat, Dec 25", "Sat, Dec 25–Mon, Dec 27". */
 function formatInvitationWhen(when: InvitationWhen): string {
+	const day = new Intl.DateTimeFormat(undefined, { weekday: 'short', month: 'short', day: 'numeric' })
 	if (when.kind === 'timed') {
 		const start = new Date(when.start * 1_000)
 		const end = new Date(when.end * 1_000)
-		const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' }).format(start)
-		const time = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' })
-		return `${date} · ${time.format(start)}–${time.format(end)}`
+		const time = new Intl.DateTimeFormat(undefined, { hour: 'numeric', minute: '2-digit' })
+		const from = time.format(start)
+		const to = time.format(end)
+		if (start.toDateString() !== end.toDateString()) {
+			return `${day.format(start)} · ${from} – ${day.format(end)} · ${to}`
+		}
+		// One period for both ends when they share it: "2:00–2:45 PM".
+		const shared = PERIOD.exec(from)?.[1] === PERIOD.exec(to)?.[1]
+		return `${day.format(start)} · ${shared ? from.replace(PERIOD, '') : from}–${to}`
 	}
 	const start = localCalendarDate(when.startDate)
 	const end = localCalendarDate(when.endDate)
-	const date = new Intl.DateTimeFormat(undefined, { dateStyle: 'full' })
-	if (end.getTime() - start.getTime() <= 86_400_000) return `All day · ${date.format(start)}`
+	if (end.getTime() - start.getTime() <= 86_400_000) return `All day · ${day.format(start)}`
 	const inclusiveEnd = new Date(end.getTime() - 86_400_000)
-	return `All day · ${date.format(start)}–${date.format(inclusiveEnd)}`
+	return `All day · ${day.format(start)}–${day.format(inclusiveEnd)}`
 }
 
 function localCalendarDate(value: string): Date {
