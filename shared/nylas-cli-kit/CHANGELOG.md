@@ -1,5 +1,11 @@
 # @nylas-labs/cli-kit
 
+## 0.10.0
+
+### Minor Changes
+
+- bc2255b: Add `cancelScheduledMessage(scheduleId)` to the grant-scoped v3 client, and type the `schedule_id` and `send_at` fields Nylas returns on scheduled messages.
+
 ## 0.9.0
 
 ### Minor Changes
