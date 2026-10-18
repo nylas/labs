@@ -19,6 +19,7 @@ import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
+import { ReadingPaneDivider } from '#features/mail/components/ReadingPaneDivider'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadBundleRow } from '#features/mail/components/ThreadBundleRow'
 import {
@@ -41,7 +42,7 @@ import {
 	readableSnippet,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
-import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { readingPaneLayout, readingPaneSizeStyle } from '#features/mail/lib/reading-pane'
 import { foldedBundleOf, type ThreadListItem, threadListItems } from '#features/mail/lib/thread-list-model'
 import { dayGroupHeading } from '#features/mail/lib/thread-reading-model'
 import { runScheduledSend, type ScheduledSendAction } from '#features/mail/state/mail-mutations'
@@ -691,7 +692,7 @@ function LoadedMailFolderRouteScreen({
 
 	return (
 		<ThreadListEnvironment value={listEnv}>
-			<div className={layout.container} data-mail-panes>
+			<div className={layout.container} style={readingPaneSizeStyle(preferences)} data-mail-panes>
 				<Dialog
 					open={discardTarget !== null}
 					onOpenChange={(open) => {
@@ -790,6 +791,7 @@ function LoadedMailFolderRouteScreen({
 						threadList
 					)}
 				</section>
+				<ReadingPaneDivider />
 				<section className={layout.reader} data-mail-reader data-navigation-region="mail-reader">
 					{hasThread ? (
 						(children ?? <ContentReadyOutlet parentRouteId="/mail/f/$folderId" />)
