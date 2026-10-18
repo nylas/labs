@@ -209,7 +209,7 @@ export function lookalikeSender(
 	if (namesakes.length === 0) return null
 	if (namesakes.some((person) => sameSenderDomain(person.email, sender.email))) return null
 	const usual = (namesakes[0] as Person).email
-	// Siblings under a public suffix (mail.bank.co.uk, news.bank.co.uk) are told apart by their hosts.
+	// Sibling hosts of one domain (mail.bank.com, news.bank.com) are told apart by their hosts.
 	const usualDomain =
 		organisationDomain(usual) === organisationDomain(sender.email)
 			? addressDomain(usual)

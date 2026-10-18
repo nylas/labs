@@ -1554,6 +1554,80 @@ describe('scheduled sends', () => {
 	})
 })
 
+describe('Edit and resend', () => {
+	const bounced = {
+		id: 'm1',
+		thread_id: 't1',
+		from: [{ email: 'Ada@OwnMail.com' }],
+		to: [{ email: 'mary@nasa.gov' }],
+		cc: [{ email: 'grace@example.com' }],
+		subject: 'Launch dates',
+		body: '<p>Here are the dates.</p>',
+		attachments: [{ id: 'a1', filename: 'dates.pdf', content_type: 'application/pdf' }],
+	}
+
+	it('validates the message id and the address', () => {
+		expect(fns.createResendDraft.validator({ messageId: 'm1', to: 'mary@nasa.gov' })).toEqual({
+			messageId: 'm1',
+			toList: ['mary@nasa.gov'],
+		})
+		expect(fns.createResendDraft.validator({ messageId: 'm1', to: '' })).toEqual({
+			messageId: 'm1',
+			toList: [],
+		})
+		expect(() => fns.createResendDraft.validator({ messageId: '', to: 'mary@nasa.gov' })).toThrow(
+			'Invalid message',
+		)
+		expect(() => fns.createResendDraft.validator({ messageId: 'm1', to: 'not an address' })).toThrow(
+			'Invalid recipient',
+		)
+	})
+
+	it('copies your bounced message, files included, into a draft to the address that bounced', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: bounced })
+		mailbox.downloadAttachment.mockImplementation(async () => new Response('pdf'))
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		mailbox.listFolders.mockResolvedValue({ data: [] })
+		expect(
+			await fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).toEqual({ draftId: 'd-resend', folders: [] })
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'm1')
+		expect(mailbox.createDraft).toHaveBeenCalledWith({
+			to: [{ email: 'mary@nasa.gov' }],
+			subject: 'Launch dates',
+			body: '<p>Here are the dates.</p>',
+			attachments: [{ filename: 'dates.pdf', content_type: 'application/pdf', content: btoa('pdf') }],
+		})
+	})
+
+	it('copies a message without files, subject or body as it is', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { id: 'm1', from: [{ email: 'ada@ownmail.com' }] } })
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		await fns.createResendDraft.handler({ data: { messageId: 'm1', toList: [] } })
+		expect(mailbox.createDraft).toHaveBeenCalledWith({ to: [], subject: '', body: '' })
+	})
+
+	it('copies only your own message, and writes nothing when its files cannot be read', async () => {
+		resolveMailbox()
+		mailbox.getMessage.mockResolvedValue({ data: { ...bounced, from: [{ email: 'mallory@example.com' }] } })
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		mailbox.getMessage.mockResolvedValue({ data: { ...bounced, from: undefined } })
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		mailbox.getMessage.mockResolvedValue({ data: bounced })
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(
+			fns.createResendDraft.handler({ data: { messageId: 'm1', toList: ['mary@nasa.gov'] } }),
+		).rejects.toThrow(/Something went wrong/)
+		expect(mailbox.createDraft).not.toHaveBeenCalled()
+	})
+})
+
 describe('markMessagesRead', () => {
 	it('validates the thread and message ids, without repeats', () => {
 		expect(fns.markMessagesRead.validator({ threadId: 't1', messageIds: ['m1', 'm2', 'm1'] })).toEqual({

@@ -45,9 +45,12 @@ describe('mail query cache boundaries', () => {
 		// The answer says which messages are bulk mail. It belongs to one inbox's
 		// thread: another account opening a thread with the same id must not read it.
 		const fetchIds = vi.fn(async (threadId: string) => [`${threadId}-newsletter`])
-		const options = threadListUnsubscribeQueryOptions('t1', fetchIds)
-		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-list-unsubscribe', 't1'])
-		expect(mailKeys.threadListUnsubscribe('t1')).toEqual(options.queryKey)
+		const options = threadListUnsubscribeQueryOptions('t1', 'm1', fetchIds)
+		expect(options.queryKey).toEqual(['mail', accountScope(), 'thread-list-unsubscribe', 't1', 'm1'])
+		expect(mailKeys.threadListUnsubscribe('t1', 'm1')).toEqual(options.queryKey)
+		expect(threadListUnsubscribeQueryOptions('t1', undefined, fetchIds).queryKey).toEqual(
+			mailKeys.threadListUnsubscribe('t1'),
+		)
 		expect(options.staleTime).toBe(Number.POSITIVE_INFINITY)
 		expect(options.retry).toBe(false)
 
@@ -55,7 +58,26 @@ describe('mail query cache boundaries', () => {
 		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
 		expect(await queryClient.fetchQuery(options)).toEqual(['t1-newsletter'])
 		expect(fetchIds).toHaveBeenCalledTimes(1)
-		expect(() => threadListUnsubscribeQueryOptions('bad\nid', fetchIds)).toThrow()
+		// A new reply grows the thread and asks again.
+		await queryClient.fetchQuery(threadListUnsubscribeQueryOptions('t1', 'm2', fetchIds))
+		expect(fetchIds).toHaveBeenCalledTimes(2)
+		expect(() => threadListUnsubscribeQueryOptions('bad\nid', 'm1', fetchIds)).toThrow()
+		expect(() => threadListUnsubscribeQueryOptions('t1', 'bad\nid', fetchIds)).toThrow()
+
+		// While a new reply is looked up, the same thread's newest cached answer stands in.
+		const placeholderFor = (threadId: string, client?: QueryClient) =>
+			(threadListUnsubscribeQueryOptions(threadId, 'm3', fetchIds, client).placeholderData as () => unknown)()
+		expect(placeholderFor('t1')).toBeUndefined()
+		expect(placeholderFor('t2', queryClient)).toBeUndefined()
+		queryClient.setQueryData(mailKeys.threadListUnsubscribe('t1', 'm0'), ['older'], { updatedAt: 1 })
+		queryClient.setQueryData(mailKeys.threadListUnsubscribe('t1', 'm4'), ['newest'], {
+			updatedAt: Date.now() + 1000,
+		})
+		void queryClient.prefetchQuery({
+			queryKey: mailKeys.threadListUnsubscribe('t1', 'm5'),
+			queryFn: () => new Promise<string[]>(() => {}),
+		})
+		expect(placeholderFor('t1', queryClient)).toEqual(['newest'])
 	})
 
 	it('keeps header facts per account, thread and newest message for the session and never retries a failure', async () => {
@@ -118,7 +140,8 @@ describe('mail query cache boundaries', () => {
 		expect(isSessionMailLookup(mailKeys.threadHeaderFacts('t1', 'm1'))).toBe(true)
 		expect(isSessionMailLookup(mailKeys.threadListUnsubscribe('t1'))).toBe(true)
 		expect(isSessionMailLookup(mailKeys.messageRawHeaders('m1'))).toBe(true)
-		expect(isSessionMailLookup([...mailKeys.all, 'thread-unread-summary', 't1', 'm1'])).toBe(true)
+		// Read state changes elsewhere, so a refresh asks the per-row unread summary again.
+		expect(isSessionMailLookup([...mailKeys.all, 'thread-unread-summary', 't1', 'm1'])).toBe(false)
 		expect(isSessionMailLookup(['mail-side-thread', accountScope(), 't1', 'plans'])).toBe(true)
 		expect(isSessionMailLookup(mailKeys.threadDetail('t1'))).toBe(false)
 		expect(isSessionMailLookup(mailKeys.folders())).toBe(false)

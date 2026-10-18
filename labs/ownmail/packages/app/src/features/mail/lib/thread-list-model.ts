@@ -172,6 +172,8 @@ export type ThreadRowFacts = {
 	unread: boolean
 	sendAt?: number
 	newCount?: number
+	/** `newCount` is a floor: more of the thread may be new ("200+ new"). */
+	newCountMore?: true
 	asksYou: boolean
 	file?: string
 	invite?: { messageId: string; attachmentId: string }
@@ -180,18 +182,29 @@ export type ThreadRowFacts = {
 /**
  * What a row needs from a conversation's messages: how many are unread and the
  * newest file. One light lookup per thread answers it, so a list never loads
- * whole conversations to count them.
+ * whole conversations to count them. `moreUnread` says the count is a floor:
+ * the lookup stopped at its cap with every message it read unread.
  */
-export type ThreadUnreadSummary = { unreadCount: number; newestFile?: string }
+export type ThreadUnreadSummary = { unreadCount: number; newestFile?: string; moreUnread?: true }
 
-/** The summary of the messages a lookup returned, in any order. */
-export function unreadSummary(messages: MailMessage[], owner: string): ThreadUnreadSummary {
+/**
+ * The summary of the messages a lookup returned, in any order. `more` says
+ * the lookup stopped at its cap with messages left (it reads newest first).
+ */
+export function unreadSummary(messages: MailMessage[], owner: string, more = false): ThreadUnreadSummary {
 	const newestFile = threadFiles(messages, owner)[0]?.filename
+	const unreadCount = messages.filter((message) => message.unread).length
 	return {
-		unreadCount: messages.filter((message) => message.unread).length,
+		unreadCount,
 		...(newestFile ? { newestFile } : {}),
+		// Unread mail is the newest: only when all of what was read is unread can more be.
+		...(more && unreadCount > 0 && unreadCount === messages.length ? { moreUnread: true as const } : {}),
 	}
 }
+
+/** "3 new", or "200+ new" when the count is a floor. */
+export const newCountLabel = (facts: Pick<ThreadRowFacts, 'newCount' | 'newCountMore'>): string =>
+	`${facts.newCount}${facts.newCountMore ? '+' : ''} new`
 
 type Participant = NonNullable<MailThread['participants']>[number]
 
@@ -345,7 +358,9 @@ function rowFactsOf(
 		...(snippetFrom ? { snippetFrom } : {}),
 		snippet,
 		unread: Boolean(thread.unread),
-		...(thread.unread && messageCount > 1 && unreadCount > 0 ? { newCount: unreadCount } : {}),
+		...(thread.unread && messageCount > 1 && unreadCount > 0
+			? { newCount: unreadCount, ...(summary?.moreUnread ? { newCountMore: true as const } : {}) }
+			: {}),
 		asksYou: Boolean(ownerKey && latest && asksYou(latest, env.owner, env.ownerFirstName)),
 		...(file ? { file } : {}),
 		...(invitation ? { invite: { messageId: (latest as MailMessage).id, attachmentId: invitation.id } } : {}),
@@ -383,7 +398,7 @@ export function threadRowLabel(facts: ThreadRowFacts, sendAt?: string): string {
 	return [
 		head,
 		facts.unread && 'unread',
-		facts.newCount && `${facts.newCount} new`,
+		facts.newCount && newCountLabel(facts),
 		facts.asksYou && 'asks you',
 		facts.state === 'muted' && 'muted',
 		facts.state === 'failed' && 'not sent',

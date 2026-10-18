@@ -55,15 +55,20 @@ describe('linksDisabled', () => {
 		expect(linksDisabled(undefined, false, true)).toBe(true)
 	})
 
-	it('treats a sender as unchecked only while the lookup holds nothing for that message', () => {
+	it('treats a sender as unchecked whenever the lookup holds nothing for that message', () => {
 		const grace = { id: 'm', from: [GRACE] } as MailMessage
+		const covered = { byMessage: { m: facts() } }
+		const other = { byMessage: { older: facts() } }
 		expect(uncheckedSender(grace, OWNER, undefined, 'pending')).toBe('pending')
 		expect(uncheckedSender(grace, OWNER, undefined, 'failed')).toBe('failed')
+		expect(uncheckedSender(grace, OWNER, other, 'pending')).toBe('pending')
+		expect(uncheckedSender(grace, OWNER, covered, 'pending')).toBeUndefined()
+		expect(uncheckedSender(grace, OWNER, covered, 'settled')).toBeUndefined()
+		// A settled answer that leaves the message out (past the lookup's cap) is no verdict.
+		expect(uncheckedSender(grace, OWNER, other, 'settled')).toBe('failed')
+		// Without any answer, a settled state means the thread was not looked up.
 		expect(uncheckedSender(grace, OWNER, undefined, 'settled')).toBeUndefined()
-		expect(uncheckedSender(grace, OWNER, facts(), 'pending')).toBeUndefined()
-		expect(
-			uncheckedSender({ id: 'm', from: [ADA] } as MailMessage, OWNER, undefined, 'failed'),
-		).toBeUndefined()
+		expect(uncheckedSender({ id: 'm', from: [ADA] } as MailMessage, OWNER, other, 'settled')).toBeUndefined()
 	})
 
 	it('tells whether a sender only looks like someone known', () => {
@@ -137,11 +142,13 @@ describe('MessageNotices', () => {
 		)
 	})
 
-	it('warns exactly when links are made inert, for siblings on a plain domain and under co.uk', () => {
+	it('warns exactly when links are made inert: siblings warn under any suffix, subdomains do not', () => {
 		const cases: Array<[known: string, sender: string, warns: boolean]> = [
-			['digest@mail.example.com', 'hello@news.example.com', false],
+			['digest@mail.example.com', 'hello@news.example.com', true],
+			['digest@victim.github.io', 'hello@attacker.github.io', true],
 			['digest@mail.example.co.uk', 'hello@news.example.co.uk', true],
 			['digest@example.co.uk', 'hello@news.example.co.uk', false],
+			['digest@example.com', 'hello@news.example.com', false],
 		]
 		for (const [known, sender, warns] of cases) {
 			const knownSenders: Person[] = [{ name: 'Example', email: known, isOwner: false }]

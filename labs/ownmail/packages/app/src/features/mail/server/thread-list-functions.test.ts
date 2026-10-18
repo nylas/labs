@@ -27,7 +27,8 @@ vi.mock('#server/mailbox-boundary', async (importOriginal) => ({
 	requireMailbox: () => requireMailbox(),
 }))
 
-const { getThreadUnreadSummary, UNREAD_SUMMARY_LOOKUP_LIMIT } = await import('./thread-list-functions.js')
+const { getThreadUnreadSummary } = await import('./thread-list-functions.js')
+const { THREAD_MAX_PAGES, THREAD_PAGE_SIZE } = await import('./thread-message-pages.js')
 
 const ADA = { name: 'Ada Lovelace', email: 'ada@ownmail.com' }
 const GRACE = { name: 'Grace Hopper', email: 'grace@vercel.com' }
@@ -66,15 +67,62 @@ describe('getThreadUnreadSummary', () => {
 		expect(listMessages).toHaveBeenCalledWith({
 			thread_id: 't1',
 			select: 'id,thread_id,unread,date,from,attachments',
-			limit: UNREAD_SUMMARY_LOOKUP_LIMIT,
+			limit: THREAD_PAGE_SIZE,
 		})
 	})
 
-	it('names no file when there is none, and counts nothing from an unexpected answer', async () => {
+	it('names no file when there is none, and answers nothing from an unexpected answer', async () => {
 		listMessages.mockResolvedValue({ data: [{ id: 'm1', thread_id: 't1', unread: true, from: [GRACE] }] })
 		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).resolves.toEqual({ unreadCount: 1 })
 		listMessages.mockResolvedValue({ data: 'unexpected' })
-		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).resolves.toEqual({ unreadCount: 0 })
+		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).rejects.toThrow(/./)
+	})
+
+	const page = (from: number, unread: (index: number) => boolean) =>
+		Array.from({ length: THREAD_PAGE_SIZE }, (_, offset) => ({
+			id: `m${from + offset}`,
+			thread_id: 't1',
+			unread: unread(from + offset),
+			date: 10_000 - from - offset,
+			from: [GRACE],
+		}))
+
+	it('follows the cursor past the first page, counting a message seen twice once', async () => {
+		listMessages
+			.mockResolvedValueOnce({ data: page(0, () => true), next_cursor: 'c1' })
+			.mockResolvedValueOnce({
+				data: [
+					{ id: 'm0', thread_id: 't1', unread: true, from: [GRACE] },
+					{ id: 'late', thread_id: 't1', unread: true, from: [GRACE] },
+				],
+			})
+		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).resolves.toEqual({
+			unreadCount: THREAD_PAGE_SIZE + 1,
+		})
+		expect(listMessages).toHaveBeenLastCalledWith({
+			thread_id: 't1',
+			select: 'id,thread_id,unread,date,from,attachments',
+			limit: THREAD_PAGE_SIZE,
+			page_token: 'c1',
+		})
+	})
+
+	it('says the count is a floor only when it stopped at its cap with everything it read unread', async () => {
+		listMessages.mockImplementation(async (query: { page_token?: string }) => {
+			const index = Number(query.page_token ?? 0)
+			return { data: page(index * THREAD_PAGE_SIZE, () => true), next_cursor: String(index + 1) }
+		})
+		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).resolves.toEqual({
+			unreadCount: THREAD_PAGE_SIZE * THREAD_MAX_PAGES,
+			moreUnread: true,
+		})
+		expect(listMessages).toHaveBeenCalledTimes(THREAD_MAX_PAGES)
+		// A read message among them means the unread run ended inside the cap.
+		listMessages.mockImplementation(async (query: { page_token?: string }) => {
+			const index = Number(query.page_token ?? 0)
+			return { data: page(index * THREAD_PAGE_SIZE, (n) => n < 120), next_cursor: String(index + 1) }
+		})
+		await expect(getThreadUnreadSummary({ data: { threadId: 't1' } })).resolves.toEqual({ unreadCount: 120 })
 	})
 
 	it('rejects a bad thread id and says a failed lookup failed, in words a person can read', async () => {

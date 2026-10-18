@@ -10,7 +10,8 @@ import { EDGE_BUTTON_CLASS, EDGE_GHOST_CLASS } from './edge-actions.js'
  * Your outgoing message keeps its place in the thread with its state in
  * words: "Not sent. mary@nasa.gov bounced." with Edit and resend or Copy text,
  * or "Sends Mon 9:00 AM" with Send now or Cancel. Nothing renders for a
- * message that went out normally.
+ * message that went out normally. Edit and resend is handed the address that
+ * bounced; while it works the button waits, and a failure says so.
  *
  * The send time is written in the viewer's own zone, which the server does
  * not know, so it fills in after mount (server and first client render agree).
@@ -27,7 +28,7 @@ export function OutgoingStatus({
 }: {
 	message: MailMessage
 	bounce?: { address: string }
-	onEditResend(): void
+	onEditResend(address: string): Promise<void>
 	onSendNow?: () => void
 	onCancelSchedule?: () => void
 	now?: number
@@ -35,6 +36,7 @@ export function OutgoingStatus({
 }) {
 	const mounted = useMounted()
 	const [copy, setCopy] = useState<'idle' | 'copied' | 'failed'>('idle')
+	const [resend, setResend] = useState<'idle' | 'pending' | 'failed'>('idle')
 	const sendAt = pendingSendAt(message as MailMessage & { send_at?: unknown }, now)
 	if (!bounce && sendAt === null) return null
 
@@ -45,6 +47,14 @@ export function OutgoingStatus({
 		} catch {
 			setCopy('failed')
 		}
+	}
+
+	const editAndResend = (address: string) => {
+		setResend('pending')
+		onEditResend(address).then(
+			() => setResend('idle'),
+			() => setResend('failed'),
+		)
 	}
 
 	return (
@@ -59,12 +69,23 @@ export function OutgoingStatus({
 						</span>
 					</div>
 					<div className="flex flex-wrap items-center gap-2">
-						<button type="button" onClick={onEditResend} className={EDGE_BUTTON_CLASS}>
+						<button
+							type="button"
+							onClick={() => editAndResend(bounce.address)}
+							disabled={resend === 'pending'}
+							aria-busy={resend === 'pending' || undefined}
+							className={EDGE_BUTTON_CLASS}
+						>
 							Edit and resend
 						</button>
 						<button type="button" onClick={() => void copyText()} className={EDGE_GHOST_CLASS}>
 							{copy === 'copied' ? 'Copied' : 'Copy text'}
 						</button>
+						{resend === 'failed' ? (
+							<span role="alert" className="text-xs text-danger-soft-foreground">
+								Couldn’t open the message. Try again.
+							</span>
+						) : null}
 						{copy === 'failed' ? (
 							<span role="alert" className="text-xs text-danger-soft-foreground">
 								Couldn’t copy. Select the text instead.

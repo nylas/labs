@@ -23,7 +23,7 @@ import { ErrorBanner } from '#features/mail/components/ErrorBanner'
 import { InlineReplyCard } from '#features/mail/components/InlineReplyCard'
 import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
 import { MobileThreadTopBar } from '#features/mail/components/MobileThreadTopBar'
-import { RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
+import { REPLIES_PAUSED_TITLE, RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
 import { ThreadColumn } from '#features/mail/components/ThreadColumn'
 import {
 	THREAD_MAP_DOCK_ID,
@@ -768,9 +768,6 @@ function IconButton({
 		</ToolbarIconButton>
 	)
 }
-
-/** What a reply control says while part of the thread has not loaded. */
-const REPLIES_PAUSED_TITLE = 'Load the whole conversation to reply (Try again)'
 
 function ActionButton({
 	label,

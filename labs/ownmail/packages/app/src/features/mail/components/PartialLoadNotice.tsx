@@ -71,6 +71,9 @@ export function EdgeLoadCard({ text, online, onRetry }: { text: string; online: 
 	)
 }
 
+/** What a reply control says while part of the thread has not loaded. */
+export const REPLIES_PAUSED_TITLE = 'Load the whole conversation to reply (Try again)'
+
 /**
  * Where the reply card sits when part of the thread did not load: the newest
  * message may be the missing one, so Reply, Reply all and Forward wait for

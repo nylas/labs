@@ -3,13 +3,11 @@
  * the lookalike-sender notice and the inert links it announces, so the two
  * never disagree.
  *
- * There is no public suffix list here. Under a plain top-level domain
- * (example.com, example.de) every host of a registrable domain is one
- * organisation, so mail.example.com and news.example.com match. Under a
- * multi-label public suffix (a two-letter country code with a short generic
- * second level: co.uk, ne.jp, com.au) siblings are strangers until proven
- * otherwise, and only the same host or a subdomain of the other matches. A
- * guess errs toward the warning, never toward silence.
+ * There is no public suffix list here, and private suffixes (github.io,
+ * herokuapp.com) hand sibling hosts to strangers under any top-level domain.
+ * So only the same host, or a subdomain of the other, matches: siblings such
+ * as mail.example.com and news.example.com are strangers until proven
+ * otherwise. A guess errs toward the warning, never toward silence.
  */
 
 /**
@@ -35,7 +33,7 @@ function registrableLabels(labels: string[]): 2 | 3 {
 		: 2
 }
 
-/** The registrable part of an address's domain: mail.meridianbank.com → meridianbank.com. */
+/** The registrable part of an address's domain, for naming it: mail.meridianbank.com → meridianbank.com. */
 export function organisationDomain(email: string): string {
 	const labels = hostOf(email).split('.')
 	return labels.slice(-registrableLabels(labels)).join('.')
@@ -47,13 +45,12 @@ const within = (child: string, parent: string): boolean =>
 
 /**
  * Whether two addresses write from the same organisation's domain: the same
- * host, one a subdomain of the other, or, under a plain top-level domain, two
- * hosts of one registrable domain. An address without a domain matches nothing.
+ * host, or one a subdomain of the other. An address without a domain matches
+ * nothing.
  */
 export function sameSenderDomain(a: string, b: string): boolean {
 	const hostA = hostOf(a)
 	const hostB = hostOf(b)
 	if (!hostA || !hostB) return false
-	if (hostA === hostB || within(hostA, hostB) || within(hostB, hostA)) return true
-	return registrableLabels(hostA.split('.')) === 2 && organisationDomain(a) === organisationDomain(b)
+	return hostA === hostB || within(hostA, hostB) || within(hostB, hostA)
 }

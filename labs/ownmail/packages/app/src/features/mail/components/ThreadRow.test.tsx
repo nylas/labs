@@ -13,14 +13,19 @@ const {
 	getCalendarInvitation,
 	respondCalendarInvitation,
 	openCompose,
+	createResendDraft,
 } = vi.hoisted(() => ({
 	getThreadMessages: vi.fn(),
 	getThreadUnreadSummary: vi.fn(),
 	getCalendarInvitation: vi.fn(),
 	respondCalendarInvitation: vi.fn(),
 	openCompose: vi.fn(async () => {}),
+	createResendDraft: vi.fn(),
 }))
-vi.mock('#server/fns', () => ({ getThreadMessages: (input: unknown) => getThreadMessages(input) }))
+vi.mock('#server/fns', () => ({
+	getThreadMessages: (input: unknown) => getThreadMessages(input),
+	createResendDraft: (input: unknown) => createResendDraft(input),
+}))
 vi.mock('../server/thread-list-functions.js', () => ({
 	getThreadUnreadSummary: (input: unknown) => getThreadUnreadSummary(input),
 }))
@@ -157,6 +162,7 @@ beforeEach(() => {
 	getCalendarInvitation.mockReset()
 	respondCalendarInvitation.mockReset()
 	openCompose.mockReset().mockResolvedValue(undefined)
+	createResendDraft.mockReset()
 })
 
 afterEach(() => {
@@ -493,8 +499,9 @@ describe('a send that failed', () => {
 	})
 	const detail = { thread: failed, messages: [original, bounce], mailboxEmail: ADA.email }
 
-	it('says so on a red row and reopens the message for Edit and resend', async () => {
+	it('says so on a red row and reopens the message, files and all, as a draft to the address that bounced', async () => {
 		getThreadMessages.mockResolvedValue(detail)
+		createResendDraft.mockResolvedValue({ draftId: 'd-resend' })
 		const { container } = renderRow(failed)
 		expect(container.querySelector('.thread-row-sender')).toHaveAttribute('data-tone', 'failed')
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('To Meridian Bank')
@@ -507,25 +514,29 @@ describe('a send that failed', () => {
 		// The snippet line is replaced in the Default density, and kept for the narrower ones.
 		expect(container.querySelector('.thread-row-snippet')).toHaveAttribute('data-replaced', '')
 		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
-		await waitFor(() =>
-			expect(openCompose).toHaveBeenCalledWith({
-				kind: 'new',
-				to: 'support@meridianbank.com',
-				subject: 'Question about the June statement',
-				body: 'Hi, my June statement shows a fee.\n\nThanks, Ada',
-			}),
-		)
+		await waitFor(() => expect(openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-resend' }))
+		// The server copies the original, with its files, into a draft to the one address that bounced.
+		expect(createResendDraft).toHaveBeenCalledWith({
+			data: { messageId: 'o', to: 'support@meridianbank.com' },
+		})
 		expect(screen.getByRole('button', { name: 'Edit and resend' })).not.toBeDisabled()
 	})
 
 	it('loads the conversation itself outside a query client', async () => {
-		getThreadMessages.mockResolvedValue({
-			...detail,
-			messages: [{ ...original, subject: undefined }, bounce],
-		})
+		getThreadMessages.mockResolvedValue(detail)
+		createResendDraft.mockResolvedValue({ draftId: 'd-resend' })
 		renderRow(failed, { client: null })
 		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
-		await waitFor(() => expect(openCompose).toHaveBeenCalledWith(expect.objectContaining({ subject: '' })))
+		await waitFor(() => expect(openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-resend' }))
+	})
+
+	it('says it could not open the message when the draft copy cannot be made', async () => {
+		getThreadMessages.mockResolvedValue(detail)
+		createResendDraft.mockRejectedValue(new Error('Something went wrong'))
+		renderRow(failed)
+		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
+		expect(await screen.findByText('Couldn’t open the message. Try again.')).toBeInTheDocument()
+		expect(openCompose).not.toHaveBeenCalled()
 	})
 
 	it('says it could not open the message when there is nothing to resend', async () => {

@@ -26,13 +26,10 @@ describe('sameSenderDomain', () => {
 		expect(sameSenderDomain('a@deep.mail.example.ne.jp', 'b@mail.example.ne.jp')).toBe(true)
 	})
 
-	it('matches sibling hosts of one registrable domain under a plain top-level domain', () => {
-		expect(sameSenderDomain('a@mail.example.com', 'b@news.example.com')).toBe(true)
-		expect(sameSenderDomain('a@mail.example.de', 'b@news.example.de')).toBe(true)
-	})
-
-	it('keeps siblings under a multi-label public suffix apart', () => {
-		for (const suffix of ['co.uk', 'ne.jp', 'com.au', 'ac.jp', 'org.uk', 'gov.uk', 'gouv.fr']) {
+	it('keeps sibling hosts apart under any suffix, private ones included', () => {
+		expect(sameSenderDomain('a@victim.github.io', 'b@attacker.github.io')).toBe(false)
+		expect(sameSenderDomain('a@shop.herokuapp.com', 'b@evil.herokuapp.com')).toBe(false)
+		for (const suffix of ['com', 'de', 'co.uk', 'ne.jp', 'com.au', 'ac.jp', 'org.uk', 'gov.uk', 'gouv.fr']) {
 			expect(sameSenderDomain(`a@mail.example.${suffix}`, `b@news.example.${suffix}`)).toBe(false)
 			expect(sameSenderDomain(`a@example.${suffix}`, `b@evil.${suffix}`)).toBe(false)
 		}

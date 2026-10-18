@@ -9,7 +9,13 @@ import {
 	replyToAddress,
 } from '../lib/message-anatomy.js'
 import { firstName, type Person, personName, senderPerson } from '../lib/thread-reading-model.js'
-import type { HeaderFactsState, MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
+import {
+	type HeaderFactsState,
+	type MailMessage,
+	type MessageHeaderFacts,
+	messageHeaderFactsFor,
+	type ThreadHeaderFacts,
+} from '../state/mail-queries.js'
 
 export { lookalikeSender } from '../lib/message-anatomy.js'
 
@@ -28,18 +34,21 @@ export function linksDisabled(facts?: MessageHeaderFacts, lookalike?: boolean, u
 
 /**
  * Whether a message's sender checks have not answered: the thread's header
- * lookup is `pending` or `failed` and holds no facts for this message. Your
- * own mail is never checked. A settled lookup that has nothing for a message
- * has no verdict on it, and its links stay live.
+ * lookup holds no facts for this message and is `pending` or `failed`, or has
+ * settled without it (the lookup reads at most 200 messages, newest first),
+ * which counts as `failed`: no verdict is never taken as a safe one. Your own
+ * mail is never checked, and without any answer at all (`threadFacts` unset)
+ * a settled state means the caller did not look the thread up.
  */
 export function uncheckedSender(
 	message: MailMessage,
 	owner: string,
-	facts: MessageHeaderFacts | undefined,
+	threadFacts: ThreadHeaderFacts | undefined,
 	state: HeaderFactsState,
 ): Exclude<HeaderFactsState, 'settled'> | undefined {
-	if (state === 'settled' || facts !== undefined || senderPerson(message, owner).isOwner) return undefined
-	return state
+	if (senderPerson(message, owner).isOwner || messageHeaderFactsFor(threadFacts, message.id)) return undefined
+	if (state !== 'settled') return state
+	return threadFacts ? 'failed' : undefined
 }
 
 /** Whether a message's sender is a lookalike of someone this mailbox knows. */
@@ -164,7 +173,8 @@ export function MessageNotices({
 	checksUnavailable?: boolean
 	/** Toggles the thread's muted state. */
 	onMuteThread(): void
-	onAddBack(person: Person): void
+	/** Starts a reply that adds a dropped person back; none while replies are paused (part of the thread did not load). */
+	onAddBack?: ((person: Person) => void) | undefined
 }) {
 	const sender = senderPerson(message, owner)
 	const replyTo = replyToAddress(message, facts, owner)
@@ -192,10 +202,15 @@ export function MessageNotices({
 		const first = personName(person, 'first')
 		notices.push(
 			<Notice key={`removed-${person.email}`} kind="removed" tone="neutral" icon={<UserMinus />}>
-				{firstName(sender)} removed <strong className="font-semibold">{first}</strong> from this reply.{' '}
-				<button type="button" className={linkClass} onClick={() => onAddBack(person)}>
-					Add {first} back to yours
-				</button>
+				{firstName(sender)} removed <strong className="font-semibold">{first}</strong> from this reply.
+				{onAddBack ? (
+					<>
+						{' '}
+						<button type="button" className={linkClass} onClick={() => onAddBack(person)}>
+							Add {first} back to yours
+						</button>
+					</>
+				) : null}
 			</Notice>,
 		)
 	}

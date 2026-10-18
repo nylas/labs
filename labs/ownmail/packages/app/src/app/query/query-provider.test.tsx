@@ -117,14 +117,18 @@ describe('server state synchronization', () => {
 		// Lookups kept for the session are never asked again by a refresh: each costs paged provider calls.
 		for (const key of [
 			['mail', 'a', 'thread-header-facts', 't1', 'm1'],
-			['mail', 'a', 'thread-unread-summary', 't1', 'm1'],
-			['mail', 'a', 'thread-list-unsubscribe', 't1'],
+			['mail', 'a', 'thread-list-unsubscribe', 't1', 'm1'],
 			['mail-side-thread', 'a', 't1', 'plans'],
 		]) {
 			expect(matches(scoped[0], key)).toBe(false)
 			expect(matches(invalidate.mock.calls[0]?.[0], key)).toBe(false)
 		}
 		expect(matches(scoped[0], ['mail', 'a', 'thread', 't1'])).toBe(true)
+		// A row's unread summary is asked again: mail read in another tab or device stops counting as new.
+		expect(matches(scoped[0], ['mail', 'a', 'thread-unread-summary', 't1', 'm1'])).toBe(true)
+		expect(matches(invalidate.mock.calls[0]?.[0], ['mail', 'a', 'thread-unread-summary', 't1', 'm1'])).toBe(
+			true,
+		)
 
 		await act(async () => vi.advanceTimersByTimeAsync(60_000))
 		expect(fetchMock).toHaveBeenCalledTimes(8)

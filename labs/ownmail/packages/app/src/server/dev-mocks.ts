@@ -112,9 +112,11 @@ class DevMailbox {
 		return itemResponse(mockThreadMessages(threadId).thread)
 	}
 
-	/** The messages of one thread, with their headers when `include_headers` is asked for. */
+	/** The messages of one thread, newest first as the provider lists them, with their headers when `include_headers` is asked for. */
 	async listMessages(query?: ListQuery): Promise<ListResponse<Message>> {
-		const listed = [...messages.values()].filter((message) => message.thread_id === query?.thread_id)
+		const listed = [...messages.values()]
+			.filter((message) => message.thread_id === query?.thread_id)
+			.sort((a, b) => Number(b.date) - Number(a.date))
 		if (query?.fields !== 'include_headers') return listResponse(listed)
 		return listResponse(listed.map((message) => ({ ...message, headers: mockMessageHeaders(message) })))
 	}

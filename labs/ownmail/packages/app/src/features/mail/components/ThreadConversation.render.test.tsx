@@ -48,10 +48,14 @@ vi.mock('../lib/image-sender-trust', async (importOriginal) => ({
 }))
 vi.mock('./ComposeProvider', () => ({ useCompose: () => compose }))
 // The side-thread lookup searches the mailbox; here it finds nothing unless a test says so.
-const { getThreadsMock } = vi.hoisted(() => ({ getThreadsMock: vi.fn() }))
+const { getThreadsMock, createResendDraftMock } = vi.hoisted(() => ({
+	getThreadsMock: vi.fn(),
+	createResendDraftMock: vi.fn(),
+}))
 vi.mock('#server/fns', async (importOriginal) => ({
 	...(await importOriginal<typeof import('#server/fns')>()),
 	getThreads: getThreadsMock,
+	createResendDraft: createResendDraftMock,
 }))
 
 /** The reader always sits inside the app's query client; every render here gets a fresh one. */
@@ -1612,9 +1616,13 @@ describe('what the reader keeps', () => {
 
 			rerender(reader({ headerFactsState: 'settled', headerFacts: { byMessage: { m1: verified } } }))
 			expect(content()).not.toHaveAttribute('data-links-disabled')
-			// A settled lookup that has nothing for a message has no verdict on it.
-			rerender(reader({ headerFactsState: 'settled', headerFacts: { byMessage: {} } }))
-			expect(content()).not.toHaveAttribute('data-links-disabled')
+			expect(unchecked()).toBeNull()
+		})
+
+		it('treats a message a settled lookup left out (past its cap) as unchecked, with the notice', () => {
+			render(reader({ headerFactsState: 'settled', headerFacts: { byMessage: { other: verified } } }))
+			expect(content()).toHaveAttribute('data-links-disabled', 'true')
+			expect(unchecked()?.closest('[role="note"]')).toHaveAttribute('data-kind', 'sender-unchecked')
 		})
 
 		it('keeps the earlier answer for the messages it covers while a new reply is looked up', () => {
@@ -1872,13 +1880,15 @@ describe('message actions', () => {
 		expect(screen.queryByRole('menu')).not.toBeInTheDocument()
 	})
 
-	it('wires the notices, your outgoing mail and the edge states to what they offer', () => {
+	it('wires the notices, your outgoing mail and the edge states to what they offer', async () => {
 		const onDiscardDraft = vi.fn()
 		const onRetryLoad = vi.fn()
+		createResendDraftMock.mockResolvedValue({ draftId: 'd-resend' })
 		const sent = {
 			id: 'sent',
 			from: [ADA],
 			to: [{ email: 'mary@nasa.gov' }],
+			cc: [GRACE],
 			subject: 'Launch dates',
 			date: NOW - 2 * DAY,
 			body: 'Here are the dates.',
@@ -1907,13 +1917,12 @@ describe('message actions', () => {
 		expect(document.querySelector('[data-slot="outgoing-status"]')).toHaveTextContent(
 			'Not sent.mary@nasa.gov bounced.',
 		)
+		// Edit and resend copies the message, files and all, into a draft to the one address that bounced.
 		fireEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
-		expect(compose.openCompose).toHaveBeenLastCalledWith({
-			kind: 'new',
-			to: 'mary@nasa.gov',
-			subject: 'Launch dates',
-			body: 'Here are the dates.',
-		})
+		await waitFor(() =>
+			expect(compose.openCompose).toHaveBeenLastCalledWith({ kind: 'draft', draftId: 'd-resend' }),
+		)
+		expect(createResendDraftMock).toHaveBeenCalledWith({ data: { messageId: 'sent', to: 'mary@nasa.gov' } })
 
 		// The draft sits after the message it follows, with Resume and Discard.
 		const yourDraft = screen.getByRole('region', { name: 'Your draft reply to Grace' })
@@ -2050,6 +2059,37 @@ describe('message actions', () => {
 		expect(marker.closest('[data-slot="stream-item"]')?.previousElementSibling).not.toBeNull()
 		fireEvent.click(within(marker).getByRole('button', { name: 'Try again' }))
 		expect(onRetryLoad).toHaveBeenCalledOnce()
+	})
+
+	it('keeps each message’s Reply, Forward, Quote and Add back unavailable while part of the thread is missing', () => {
+		const KATHERINE = { name: 'Katherine Johnson', email: 'katherine@example.com' }
+		const messages: MailMessage[] = [
+			{ ...message('m1'), from: [GRACE], to: [ADA, ALAN, KATHERINE], date: NOW - 2 * DAY, body: 'Plan?' },
+			{ ...message('m2'), from: [ALAN], to: [GRACE, ADA], date: NOW - DAY, body: 'Looks good.' },
+		]
+		render(
+			<ThreadConversation
+				thread={{ ...thread('t1'), message_ids: ['m1', 'lost', 'm2'] }}
+				messages={messages}
+				mailboxEmail="ada@ownmail.com"
+				failedMessageIds={['lost']}
+			/>,
+		)
+		const alan = document.getElementById('message-m2') as HTMLElement
+		for (const name of ['Reply to Alan', 'Forward this message', 'Quote selection in reply']) {
+			const control = within(alan).getByRole('button', { name })
+			expect(control).toBeDisabled()
+			expect(control).toHaveAttribute('title', 'Load the whole conversation to reply (Try again)')
+			fireEvent.click(control)
+		}
+		// The dropped person is still named; adding them back waits with the rest.
+		expect(alan).toHaveTextContent('Alan removed Katherine from this reply.')
+		expect(screen.queryByRole('button', { name: 'Add Katherine back to yours' })).toBeNull()
+		// The header's right-click menu offers them only as unavailable.
+		fireEvent.contextMenu(within(alan).getByRole('heading', { name: /Alan/ }))
+		expect(screen.getByRole('menuitem', { name: 'Reply' })).toHaveAttribute('aria-disabled', 'true')
+		expect(screen.getByRole('menuitem', { name: 'Forward' })).toHaveAttribute('aria-disabled', 'true')
+		expect(compose.openCompose).not.toHaveBeenCalled()
 	})
 
 	it('says who a reply dropped even when the message before it is a one-line row', () => {

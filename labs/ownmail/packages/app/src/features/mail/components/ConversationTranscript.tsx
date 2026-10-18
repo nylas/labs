@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import { Download, Mail } from 'lucide-react'
 import {
 	type ComponentProps,
@@ -77,13 +77,22 @@ const NO_INERT_IDS: ReadonlySet<string> = new Set()
 
 /**
  * The Conversation view of one thread. Which messages are bulk mail is one of
- * its classification signals, looked up once per account and thread and cached.
+ * its classification signals, looked up once per account, thread and newest
+ * message and cached; a new reply asks again while the earlier answer stays.
  * Until that answer is in, the transcript is the thread skeleton's placeholder:
  * a message is never painted as a bubble and then re-drawn as an article. If
  * the lookup fails, messages are classified on their bodies alone.
  */
 export function ConversationTranscript(props: Omit<ComponentProps<typeof Transcript>, 'listUnsubscribeIds'>) {
-	const lookup = useQuery(threadListUnsubscribeQueryOptions(props.threadId, fetchListUnsubscribeIds))
+	const queryClient = useQueryClient()
+	const lookup = useQuery(
+		threadListUnsubscribeQueryOptions(
+			props.threadId,
+			props.messages.at(-1)?.id,
+			fetchListUnsubscribeIds,
+			queryClient,
+		),
+	)
 	if (lookup.isPending) return <ThreadMessagesPlaceholder />
 	return <Transcript {...props} listUnsubscribeIds={lookup.data ?? NO_MESSAGE_IDS} />
 }

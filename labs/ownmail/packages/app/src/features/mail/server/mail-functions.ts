@@ -33,6 +33,7 @@ import { normalizeOutboundAttachments, type OutboundAttachment } from './outboun
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
+import { listThreadMessagePages, type ThreadMessageLister } from './thread-message-pages.js'
 import { normalizeThreadStateInput } from './thread-state.js'
 
 const MAX_MESSAGE_BODY_LENGTH = 500_000
@@ -346,50 +347,19 @@ export const getThreadMessages = createServerFn({ method: 'GET' })
 		},
 	)
 
-/** Messages read per page when a thread's headers are looked up. */
-const HEADER_LOOKUP_PAGE_SIZE = 50
-/** Pages read per thread header lookup: at most 200 messages, which bounds the cost of one request. */
-const HEADER_LOOKUP_MAX_PAGES = 4
-
 type HeaderMessage = (Message & { headers?: unknown }) | null
 
-type HeaderMessageLister = {
-	listMessages(query: {
-		thread_id: string
-		fields: 'include_headers'
-		limit: number
-		page_token?: string
-	}): Promise<{ data?: unknown; next_cursor?: unknown }>
-}
-
 /**
- * Every message of one thread with its untrusted provider headers, following
- * the provider's cursor for at most `HEADER_LOOKUP_MAX_PAGES` pages. A cursor
- * that is not a usable provider id, or that repeats, ends the walk. Any
- * failure rejects, so callers keep their single "no answer" fallback.
+ * Every message of one thread with its untrusted provider headers, newest
+ * first, for at most 200 messages. Any failure rejects, so callers keep their
+ * single "no answer" fallback.
  */
 async function listThreadMessagesWithHeaders(
-	mailbox: HeaderMessageLister,
+	mailbox: ThreadMessageLister,
 	threadId: string,
 ): Promise<HeaderMessage[]> {
-	const messages: HeaderMessage[] = []
-	const seenCursors = new Set<string>()
-	let pageToken: string | undefined
-	for (let page = 0; page < HEADER_LOOKUP_MAX_PAGES; page++) {
-		const response = await mailbox.listMessages({
-			thread_id: threadId,
-			fields: 'include_headers',
-			limit: HEADER_LOOKUP_PAGE_SIZE,
-			...(pageToken ? { page_token: pageToken } : {}),
-		})
-		if (!Array.isArray(response.data)) throw new Error('Unexpected message list')
-		messages.push(...(response.data as HeaderMessage[]))
-		const cursor = typeof response.next_cursor === 'string' ? response.next_cursor : undefined
-		if (!validNylasProviderId(cursor) || seenCursors.has(cursor)) break
-		seenCursors.add(cursor)
-		pageToken = cursor
-	}
-	return messages
+	return (await listThreadMessagePages<HeaderMessage>(mailbox, threadId, { fields: 'include_headers' }))
+		.messages
 }
 
 /** Whether untrusted provider headers include a non-empty List-Unsubscribe. Only the name is compared. */
@@ -436,7 +406,10 @@ export const getThreadListUnsubscribe = createServerFn({ method: 'GET' })
  * What a thread's headers say about each message: sender authentication,
  * Reply-To, mailing list and unsubscribe targets, and the sender's time zone.
  * Headers are requested once per thread, only when the reader asks, a page at
- * a time for at most 200 messages; facts from every page are merged. Their
+ * a time for at most 200 messages; facts from every page are merged. The
+ * provider lists a thread's messages newest first, so past the cap it is the
+ * oldest that go unanswered, and the reader treats a message without facts
+ * as unchecked (links disabled, "Sender checks couldn't be run"). Their
  * values are untrusted, are never stored or logged, and only the derived
  * booleans and short validated strings of `messageHeaderFacts` leave the
  * server. Any failure rejects (no part of a thread's facts is answered): the
@@ -737,6 +710,40 @@ export const sendScheduledNow = createServerFn({ method: 'POST' })
 			return mailReceipt(mailbox, grantId, { cancelledMessageId: copy.message.id, message: sent })
 		},
 	)
+
+// ---- Edit and resend ------------------------------------------------------------
+
+/**
+ * Edit and resend: your message that bounced, copied into a new draft to the
+ * one address that bounced, with its subject, HTML body and files (read and
+ * re-attached as a scheduled message's safety draft is). The reader opens the
+ * composer on that draft. Only your own message is copied.
+ */
+export const createResendDraft = createServerFn({ method: 'POST' })
+	.validator((input: { messageId: string; to: string }) => ({
+		messageId: requireNylasProviderId(input.messageId, 'message'),
+		toList: parseRecipientEmails(input.to, { required: false }),
+	}))
+	.handler(async ({ data }): Promise<{ draftId: string; folders?: Folder[] }> => {
+		const { mailbox, grantId, email } = await requireMailbox()
+		try {
+			const message = (await mailbox.getMessage(data.messageId)).data
+			const from = message.from?.[0]?.email ?? ''
+			if (from.toLowerCase() !== email.toLowerCase()) throw new Error('Only your own message can be resent.')
+			const restored = await restoreDraftAttachments(mailbox, message)
+			const draft = (
+				await mailbox.createDraft({
+					to: data.toList.map((address) => ({ email: address })),
+					subject: message.subject ?? '',
+					body: message.body ?? '',
+					...(restored.length > 0 ? { attachments: normalizeOutboundAttachments(restored) } : {}),
+				})
+			).data
+			return mailReceipt(mailbox, grantId, { draftId: draft.id })
+		} catch (err) {
+			throw friendly(err)
+		}
+	})
 
 // ---- Thread actions -----------------------------------------------------------
 

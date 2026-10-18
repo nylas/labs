@@ -33,6 +33,7 @@ import {
 	useUserPreferences,
 	useUserPreferencesReady,
 } from '#app/preferences/user-preferences'
+import { createResendDraft } from '#server/fns'
 import { ToolbarSeparator } from '#shared/components/ui/toolbar'
 import { useIdentityState } from '#shared/hooks/use-identity-state'
 import type { EmailColorMode, EmailLayoutMode } from '../lib/email-render.js'
@@ -84,7 +85,6 @@ import {
 	placeDrafts,
 	quotedMessageId,
 	replyTarget,
-	resendSeed,
 	type StreamEntry,
 	stepMessage,
 	streamEntries,
@@ -222,8 +222,9 @@ const isTypingTarget = (target: EventTarget | null): boolean =>
  *
  * `headerFacts` are the thread's header facts when the caller has looked them
  * up, and `headerFactsState` where that lookup stands: until it has answered
- * (and when it failed), links in mail from anyone else stay disabled. Without
- * a state the facts given are taken as the answer. `failedMessageIds` are messages the server could not load (the reader
+ * (and when it failed), links in mail from anyone else stay disabled, and so
+ * do they in a message the answer leaves out. Without a state the facts given
+ * are taken as the answer. `failedMessageIds` are messages the server could not load (the reader
  * says so and offers `onRetryLoad`); `knownSenders` are other people this
  * mailbox writes with, for the lookalike-sender check. `onScheduledSend` sends
  * your scheduled message now or cancels it, answering the draft that now holds
@@ -716,8 +717,7 @@ function ThreadConversationContent({
 		[sent, allKnownSenders, owner],
 	)
 	const uncheckedFor = useCallback(
-		(message: MailMessage) =>
-			uncheckedSender(message, owner, messageHeaderFactsFor(headerFacts, message.id), headerFactsState),
+		(message: MailMessage) => uncheckedSender(message, owner, headerFacts, headerFactsState),
 		[owner, headerFacts, headerFactsState],
 	)
 	// The Conversation view's messages whose links are disabled; each says why above it.
@@ -983,9 +983,13 @@ function ThreadConversationContent({
 	}, [unreadVisible, goTo])
 
 	// ---- Replies ---------------------------------------------------------------
-	// Your own message, in a new composer: to send it again, or now.
+	// Your bounced message, copied on the server with its files into a draft to
+	// the one address that bounced, opened in the composer.
 	const editAndResend = useCallback(
-		(message: MailMessage) => void openCompose({ kind: 'new', ...resendSeed(message) }),
+		async (message: MailMessage, address: string) => {
+			const { draftId } = await createResendDraft({ data: { messageId: message.id, to: address } })
+			await openCompose({ kind: 'draft', draftId })
+		},
 		[openCompose],
 	)
 	const openScheduledDraft = useCallback(
@@ -1002,8 +1006,11 @@ function ThreadConversationContent({
 		}),
 		[owner],
 	)
+	// Part of the thread did not load: each message's replies wait, as the toolbar's do.
+	const repliesPaused = (failedMessageIds?.length ?? 0) > 0
 	const actions = useMemo<OpenMessageActions>(
 		() => ({
+			repliesPaused,
 			onToggle: closeMessage,
 			onReply: (message) => void openCompose({ kind: 'reply', threadId: thread.id, ...replySearch(message) }),
 			onForward: (message) =>
@@ -1026,7 +1033,7 @@ function ThreadConversationContent({
 					to: [search.to, person.email].filter(Boolean).join(', '),
 				})
 			},
-			onEditResend: (message) => editAndResend(message),
+			onEditResend: editAndResend,
 			// The server keeps the whole message as a draft before it changes the
 			// schedule: a cancelled message (or one that could not go now) opens in
 			// the composer on that draft, with its people, files and formatting.
@@ -1044,6 +1051,7 @@ function ThreadConversationContent({
 			onDisplayStatus,
 		}),
 		[
+			repliesPaused,
 			onScheduledSend,
 			openScheduledDraft,
 			visible,

@@ -18,7 +18,6 @@ import {
 	replyBase,
 	replyFirstName,
 	replyTarget,
-	resendSeed,
 	stepMessage,
 	streamEntries,
 	streamMessages,
@@ -369,19 +368,6 @@ describe('lineDateLabel', () => {
 		// An unknown zone falls back to UTC rather than failing.
 		expect(lineDateLabel(NOW - 3600, NOW, 'Not/AZone')).toBe('2:00 PM')
 		expect(lineDateLabel(NOW - DAY, NOW, 'Not/AZone')).toBe('Mon')
-	})
-})
-
-describe('resendSeed', () => {
-	it("seeds a composer with the message's recipients, subject and text", () => {
-		expect(
-			resendSeed(message('m', { to: [GRACE], cc: [ALAN], subject: 'Launch dates', body: 'One.\n\nTwo.' })),
-		).toEqual({ to: 'grace@example.com, alan@example.com', subject: 'Launch dates', body: 'One.\n\nTwo.' })
-		expect(resendSeed(message('m', { to: undefined, body: '' }))).toEqual({ to: '', subject: '', body: '' })
-		// The sign-off keeps its line break.
-		expect(resendSeed(message('m', { body: '<p>Is it for?</p><p>Thanks,<br>Ada Lovelace</p>' })).body).toBe(
-			'Is it for?\n\nThanks,\nAda Lovelace',
-		)
 	})
 })
 

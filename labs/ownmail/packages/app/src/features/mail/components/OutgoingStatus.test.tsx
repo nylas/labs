@@ -15,7 +15,11 @@ afterEach(() => {
 const NOW = Date.UTC(2026, 9, 17, 12) / 1000
 const MONDAY_NINE = Date.UTC(2026, 9, 19, 9) / 1000
 const sent = { id: 'm1', body: '<p>Hi Mary,</p><p>The 20th works.</p><p>Thanks,<br>Ada</p>' } as MailMessage
-const handlers = () => ({ onEditResend: vi.fn(), onSendNow: vi.fn(), onCancelSchedule: vi.fn() })
+const handlers = () => ({
+	onEditResend: vi.fn(async (_address: string) => {}),
+	onSendNow: vi.fn(),
+	onCancelSchedule: vi.fn(),
+})
 
 describe('OutgoingStatus', () => {
 	it('renders nothing for a message that went out', () => {
@@ -30,10 +34,26 @@ describe('OutgoingStatus', () => {
 		render(<OutgoingStatus message={sent} bounce={{ address: 'mary@nasa.gov' }} {...actions} />)
 		expect(screen.getByRole('note')).toHaveTextContent('Not sent.mary@nasa.gov bounced.')
 		await userEvent.click(screen.getByRole('button', { name: 'Edit and resend' }))
-		expect(actions.onEditResend).toHaveBeenCalledOnce()
+		expect(actions.onEditResend).toHaveBeenCalledExactlyOnceWith('mary@nasa.gov')
+		expect(screen.getByRole('button', { name: 'Edit and resend' })).not.toBeDisabled()
 		await userEvent.click(screen.getByRole('button', { name: 'Copy text' }))
 		expect(writeText).toHaveBeenCalledWith('Hi Mary,\n\nThe 20th works.\n\nThanks,\nAda')
 		expect(screen.getByRole('button', { name: 'Copied' })).toBeInTheDocument()
+	})
+
+	it('waits while Edit and resend opens the draft, and says when it could not', async () => {
+		let reject: (error: Error) => void = () => {}
+		const onEditResend = vi.fn(() => new Promise<void>((_, fail) => (reject = fail)))
+		render(
+			<OutgoingStatus message={sent} bounce={{ address: 'mary@nasa.gov' }} onEditResend={onEditResend} />,
+		)
+		const button = screen.getByRole('button', { name: 'Edit and resend' })
+		await userEvent.click(button)
+		expect(button).toBeDisabled()
+		expect(button).toHaveAttribute('aria-busy', 'true')
+		reject(new Error('offline'))
+		expect(await screen.findByRole('alert')).toHaveTextContent('Couldn’t open the message. Try again.')
+		expect(button).not.toBeDisabled()
 	})
 
 	it('says a copy failed and how to get the text instead', async () => {
@@ -60,7 +80,7 @@ describe('OutgoingStatus', () => {
 
 	it('offers Send now and Cancel only when the caller can act on them', () => {
 		const scheduled = { ...sent, send_at: MONDAY_NINE } as MailMessage
-		render(<OutgoingStatus message={scheduled} onEditResend={vi.fn()} now={NOW} tz="UTC" />)
+		render(<OutgoingStatus message={scheduled} onEditResend={vi.fn(async () => {})} now={NOW} tz="UTC" />)
 		expect(screen.getByRole('note')).toHaveTextContent('Sends Mon 9:00 AM')
 		expect(screen.queryByRole('button', { name: 'Send now' })).toBeNull()
 		expect(screen.queryByRole('button', { name: 'Cancel' })).toBeNull()

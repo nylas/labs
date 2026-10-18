@@ -13,17 +13,12 @@ import {
 import { type ReactNode, useContext, useMemo, useRef, useState, useSyncExternalStore } from 'react'
 import type { CalendarInvitationDetails } from '#features/calendar/server/calendar-invitation-fns'
 import { calendarKeys } from '#features/calendar/state/calendar-keys'
-import { getThreadMessages } from '#server/fns'
+import { createResendDraft, getThreadMessages } from '#server/fns'
 import { cn } from '#shared/lib/utils'
-import {
-	messageBodyText,
-	STAR_FILLED_CLASS,
-	STAR_HOVER_CLASS,
-	threadSender,
-	threadTimestamp,
-} from '../lib/mail-ui-model.js'
+import { STAR_FILLED_CLASS, STAR_HOVER_CLASS, threadSender, threadTimestamp } from '../lib/mail-ui-model.js'
 import {
 	inviteWhenLabel,
+	newCountLabel,
 	pendingSendAt,
 	type RowWho,
 	sendAtLabel,
@@ -262,8 +257,9 @@ function unreadInReader(client: QueryClient, threadId: string): number | undefin
 
 /**
  * A row's unread count and newest file, from one light lookup per thread.
- * Keyed by the newest message, so new mail asks again; otherwise it is asked
- * once (a read row hides its count, and focus never refetches it).
+ * Keyed by the newest message, so new mail asks again, and asked again by
+ * each mail refresh, so mail read in another tab or on another device stops
+ * counting as new; focus alone never refetches it.
  */
 export function threadUnreadSummaryQueryOptions(thread: MailThread) {
 	return {
@@ -494,7 +490,7 @@ function rowSignals(facts: ThreadRowFacts): ReactNode[] {
 	if (facts.newCount) {
 		signals.push(
 			<ThreadSignal key="new" tone="new">
-				{facts.newCount} new
+				{newCountLabel(facts)}
 			</ThreadSignal>,
 		)
 	}
@@ -523,8 +519,9 @@ async function loadThread(client: QueryClient | undefined, threadId: string): Pr
 }
 
 /**
- * "Not sent. The address bounced." with Edit and resend, which opens the
- * composer on the message that bounced: its recipient, subject and text.
+ * "Not sent. The address bounced." with Edit and resend, which copies the
+ * message that bounced, files and all, into a new draft to the address that
+ * bounced and opens the composer on it.
  */
 function FailedSendLine({ threadId, client }: { threadId: string; client: QueryClient | undefined }) {
 	const { openCompose } = useCompose()
@@ -538,12 +535,8 @@ function FailedSendLine({ threadId, client }: { threadId: string; client: QueryC
 			const bounce = bounceFor(detail.messages, detail.mailboxEmail).at(-1)
 			const original = detail.messages.find((message) => message.id === bounce?.originalId)
 			if (!bounce || !original) throw new Error('No message to resend.')
-			await openCompose({
-				kind: 'new',
-				to: bounce.address,
-				subject: original.subject ?? '',
-				body: messageBodyText(original),
-			})
+			const { draftId } = await createResendDraft({ data: { messageId: original.id, to: bounce.address } })
+			await openCompose({ kind: 'draft', draftId })
 		} catch {
 			setFailed(true)
 		} finally {

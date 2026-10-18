@@ -378,7 +378,9 @@ The list says what changed, so a row can be acted on without opening it.
 - Not sent. A bounce of the person's own message turns the row
   `--list-failed`, names the recipient ("To Meridian Bank"), and replaces the
   snippet with "Not sent. The address bounced." beside "Edit and resend", which
-  opens the composer on the message that bounced. A toned row (not sent, asks
+  copies the message that bounced, files included, into a draft to the one
+  address that bounced and opens the composer on it (the reader's Edit and
+  resend does the same). A toned row (not sent, asks
   you) keeps its ground under the pointer, a step deeper, rather than the
   neutral hover.
 - Scheduled. A send waiting on `send_at` names its recipient and shows "Sends
@@ -413,7 +415,9 @@ The list says what changed, so a row can be acted on without opening it.
   muted snippets and their own text at 4.5:1 in both themes (tested from the
   tokens). A conversation that was unread when it opened keeps its unread
   weight and "{n} new" on its row while it is open, as the reader's "new since"
-  divider does, until another conversation opens.
+  divider does, until another conversation opens. The count reads the newest
+  200 messages; when all of them are unread it says "200+ new". A mail
+  refresh counts again, so mail read elsewhere stops counting as new.
 - The keyboard cursor stays on its row while rows above it come and go; when
   its own row leaves, it keeps its place. Closing a conversation returns the
   cursor and focus to its row, or to the bundle it is folded into.
@@ -722,8 +726,10 @@ opens from the files count in the thread header as a section under it.
   `--muted`), or for a raster image of 512 KB or less a thumbnail from the
   attachment route, lazily loaded, with the tile as its fallback; then the name
   and "Grace · today", with the size on images.
-- Versions fold by name (v1…vN, -final, (1)): the newest is the tile and the
-  rest sit behind its "v1–v3" link, a menu of earlier versions.
+- Versions fold by name (v1…vN, -final, (1), or the same name attached
+  again): the newest is the tile and the rest sit behind its "v1–v3" link, a
+  menu of earlier versions. Two attachments are one file only when they are
+  the same attachment; a copy re-attached to a reply is never dropped.
 - The header counts "{n} files · {m} versions folded". "Download all" fetches
   each file in turn through the attachment route.
 - Inline images and signature logos are not files, and the shelf says so in
@@ -809,12 +815,11 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   meridianbank.com. This came from meridian-secure.co and failed sender
   checks. Links are disabled." The message's links are made inert. One test
   decides both the notice and the inert links, so a message never loses its
-  links without saying why: the same host or a subdomain of it is the same
-  organisation, and so are sibling hosts under a plain top-level domain
-  (mail.example.com and news.example.com). Under a country code with a short
-  generic second level (co.uk, ne.jp, com.au) siblings are told apart, since
-  there is no public suffix list to say who owns them; a guess errs toward
-  the notice.
+  links without saying why: only the same host or a subdomain of it is the
+  same organisation. Sibling hosts (mail.example.com and news.example.com,
+  victim.github.io and attacker.github.io) are told apart under any suffix,
+  since there is no public or private suffix list to say who owns them; a
+  guess errs toward the notice.
 - Someone dropped (neutral): "Alan removed Katherine from this reply." with
   "Add Katherine back to yours", counted as the thread's system lines count a
   removal: only on a reply all that still reaches two or more of the people
@@ -937,7 +942,8 @@ link inside a sentence; all keep the 44px floor on touch.
   words stay), so no click, context menu, long press or drag can follow it.
   Mail from anyone else waits the same way until the thread's sender checks
   answer (the "Always for" offer and Open in window wait too); when they
-  cannot be looked up, an amber notice says "Sender checks couldn’t be run for
+  cannot be looked up, or the lookup (the newest 200 messages) leaves a
+  message out, an amber notice says "Sender checks couldn’t be run for
   this message" and its links stay disabled. A verdict once given is kept
   through later lookups, failed or not. The Conversation view follows the same
   rule in its bubbles, articles and cards, with the same notices above them.
@@ -958,8 +964,10 @@ link inside a sentence; all keep the 44px floor on touch.
   there. A reply from a list row to a thread
   that only partly loaded fails on the row rather than answering a message
   that may not be the last one. In the reader the same thread stays readable,
-  but Reply, Reply all and Forward wait: the toolbar keeps them in place,
-  unavailable; the reply card (and the phone's reply bar) gives way to "Reply,
+  but Reply, Reply all and Forward wait: the toolbar, and each message's
+  Reply, Forward and Quote (hover group and right-click menu), keep them in
+  place, unavailable, and a dropped person's "Add … back" is not offered; the
+  reply card (and the phone's reply bar) gives way to "Reply,
   Reply all and Forward are off until the whole conversation loads. The newest
   message may be missing." with Try again; and `r` answers nothing. Opening
   it marks only the unread messages shown read, one by one (nothing, where the

@@ -11,6 +11,7 @@ import {
 	writeUserPreferences,
 } from '#app/preferences/user-preferences'
 import { replyAllDraftSearch } from '../lib/mail-ui-model'
+import { streamMessages } from '../lib/thread-stream'
 import { type MailMessage, type MailThread, mailKeys } from '../state/mail-queries'
 import { ThreadConversation } from './ThreadConversation'
 
@@ -80,8 +81,9 @@ function renderThread(
 	}: { lookup?: 'cached' | 'live'; queryClient?: QueryClient } = {},
 ) {
 	if (lookup === 'cached') {
+		const latest = streamMessages(messages, true).at(-1)?.id
 		for (const id of ['thread-1', 'thread-2'])
-			queryClient.setQueryData(mailKeys.threadListUnsubscribe(id), [])
+			queryClient.setQueryData(mailKeys.threadListUnsubscribe(id, latest), [])
 	}
 	return render(
 		<ThreadConversation thread={thread} messages={messages} mailboxEmail="sam@example.com" {...props} />,
@@ -697,11 +699,11 @@ describe('designed mail', () => {
 		expect(articles()[0]).toHaveTextContent('the residents meeting moved to Thursday')
 		first.unmount()
 
-		// The answer is kept per account and thread: coming back asks nothing and shows no skeleton.
-		expect(queryClient.getQueryData(['mail', accountScope(), 'thread-list-unsubscribe', 'thread-1'])).toEqual(
-			['list-mail'],
-		)
-		renderThread(
+		// The answer is kept per account, thread and newest message: coming back asks nothing and shows no skeleton.
+		expect(
+			queryClient.getQueryData(['mail', accountScope(), 'thread-list-unsubscribe', 'thread-1', 'list-mail']),
+		).toEqual(['list-mail'])
+		const second = renderThread(
 			[email('m1', INES, MONDAY, 'Did you see this?'), letter],
 			{},
 			{ lookup: 'live', queryClient },
@@ -709,6 +711,25 @@ describe('designed mail', () => {
 		openConversation()
 		expect(articles()).toHaveLength(1)
 		expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(1)
+
+		// A thread that grew asks again, keeping the earlier answer on screen meanwhile.
+		const later: MailMessage = {
+			...letter,
+			id: 'list-mail-2',
+			body: '<p>Hello all, the meeting moved again.</p>',
+		}
+		getThreadListUnsubscribeMock.mockResolvedValue({ messageIds: ['list-mail', 'list-mail-2'] })
+		second.rerender(
+			<ThreadConversation
+				thread={thread}
+				messages={[email('m1', INES, MONDAY, 'Did you see this?'), letter, later]}
+				mailboxEmail="sam@example.com"
+			/>,
+		)
+		expect(document.querySelector('[data-slot="thread-messages-pending"]')).toBeNull()
+		expect(articles()).toHaveLength(1)
+		await waitFor(() => expect(articles()).toHaveLength(2))
+		expect(getThreadListUnsubscribeMock).toHaveBeenCalledTimes(2)
 	})
 
 	it('classifies on the message bodies alone when the header lookup fails', async () => {

@@ -28,13 +28,16 @@ export type InviteVersion =
 	| { kind: 'superseded'; latestId: string }
 
 export type OpenMessageActions = {
+	/** Part of the thread did not load: Reply, Forward, Quote and Add back wait, unavailable, like the toolbar's. */
+	repliesPaused: boolean
 	onToggle: (messageId: string) => void
 	onReply: (message: MailMessage) => void
 	onForward: (message: MailMessage) => void
 	onQuote: (message: MailMessage) => void
 	onMuteThread: () => void
 	onAddBack: (message: MailMessage, person: Person) => void
-	onEditResend: (message: MailMessage) => void
+	/** Opens your bounced message, files and all, as a new draft to the address that bounced. */
+	onEditResend: (message: MailMessage, address: string) => Promise<void>
 	onShowMessage: (messageId: string) => void
 	/** Opens the thread message a quoted history entry of `message` came from. */
 	onGoToQuoted: (message: MailMessage, quote: { name: string; email?: string; date?: number }) => void
@@ -150,11 +153,15 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 					senderFlagged={lookalike}
 					knownPeople={knownSenders}
 					onToggle={() => actions.onToggle(message.id)}
-					actions={{
-						onReply: () => actions.onReply(message),
-						onForward: () => actions.onForward(message),
-						onQuote: () => actions.onQuote(message),
-					}}
+					actions={
+						actions.repliesPaused
+							? null
+							: {
+									onReply: () => actions.onReply(message),
+									onForward: () => actions.onForward(message),
+									onQuote: () => actions.onQuote(message),
+								}
+					}
 				/>
 			</ThreadColumn>
 
@@ -181,7 +188,9 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							muted={muted}
 							checksUnavailable={unchecked === 'failed'}
 							onMuteThread={actions.onMuteThread}
-							onAddBack={(person: Person) => actions.onAddBack(message, person)}
+							{...(actions.repliesPaused
+								? {}
+								: { onAddBack: (person: Person) => actions.onAddBack(message, person) })}
 						/>
 						{invite?.kind === 'superseded' ? (
 							<SupersededInviteNote
@@ -233,7 +242,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							<OutgoingStatus
 								message={message}
 								{...(bounce ? { bounce } : {})}
-								onEditResend={() => actions.onEditResend(message)}
+								onEditResend={(address) => actions.onEditResend(message, address)}
 								{...(onSendNow ? { onSendNow: () => onSendNow(message) } : {})}
 								{...(onCancelSchedule ? { onCancelSchedule: () => onCancelSchedule(message) } : {})}
 							/>

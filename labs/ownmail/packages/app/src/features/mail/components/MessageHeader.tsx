@@ -14,6 +14,7 @@ import { firstName, type Person, recipientSummary, senderPerson } from '../lib/t
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import { Avatar } from './Avatar.js'
 import { MessageDetailsPanel } from './MessageDetailsPanel.js'
+import { REPLIES_PAUSED_TITLE } from './PartialLoadNotice.js'
 import { SenderContactCard } from './SenderContactCard.js'
 
 export type MessageHeaderActions = { onReply(): void; onForward(): void; onQuote(): void }
@@ -39,14 +40,16 @@ function HeaderAction({
 	children,
 }: {
 	label: string
-	onClick: () => void
+	/** None while part of the thread has not loaded: the control stays in place, unavailable. */
+	onClick: (() => void) | undefined
 	children: ReactNode
 }) {
 	return (
 		<button
 			type="button"
 			aria-label={label}
-			title={label}
+			title={onClick ? label : REPLIES_PAUSED_TITLE}
+			disabled={!onClick}
 			onClick={onClick}
 			// Keeps the reader's text selection, which "Quote selection in reply" needs.
 			onMouseDown={(event) => event.preventDefault()}
@@ -92,7 +95,8 @@ export function MessageHeader({
 	facts?: MessageHeaderFacts
 	expanded: boolean
 	onToggle(): void
-	actions: MessageHeaderActions
+	/** Reply, Forward and Quote; null while part of the thread has not loaded, when they stay in place, unavailable. */
+	actions: MessageHeaderActions | null
 	/** Id for the sender heading, so the message can be labelled by it. */
 	headingId?: string
 	/** Id of the message body this header opens and collapses. */
@@ -256,13 +260,13 @@ export function MessageHeader({
 								data-slot="message-hover-actions"
 								className="message-hover-actions hidden shrink-0 items-center border border-border bg-card md:inline-flex md:opacity-0 md:group-focus-within/header:opacity-100 md:group-hover/header:opacity-100 [@media(hover:none)]:md:opacity-100"
 							>
-								<HeaderAction label={`Reply to ${firstName(sender)}`} onClick={actions.onReply}>
+								<HeaderAction label={`Reply to ${firstName(sender)}`} onClick={actions?.onReply}>
 									<Reply className="size-3.5" aria-hidden="true" />
 								</HeaderAction>
-								<HeaderAction label="Forward this message" onClick={actions.onForward}>
+								<HeaderAction label="Forward this message" onClick={actions?.onForward}>
 									<Forward className="size-3.5" aria-hidden="true" />
 								</HeaderAction>
-								<HeaderAction label="Quote selection in reply" onClick={actions.onQuote}>
+								<HeaderAction label="Quote selection in reply" onClick={actions?.onQuote}>
 									<Quote className="size-3.5" aria-hidden="true" />
 								</HeaderAction>
 							</span>
@@ -298,11 +302,11 @@ export function MessageHeader({
 						<ChevronDown className={cn(expanded && 'rotate-180')} aria-hidden="true" />
 						{expanded ? 'Collapse message' : 'Expand message'}
 					</ContextMenuItem>
-					<ContextMenuItem onSelect={actions.onReply}>
+					<ContextMenuItem disabled={!actions} onSelect={actions?.onReply}>
 						<Reply aria-hidden="true" />
 						Reply
 					</ContextMenuItem>
-					<ContextMenuItem onSelect={actions.onForward}>
+					<ContextMenuItem disabled={!actions} onSelect={actions?.onForward}>
 						<Forward aria-hidden="true" />
 						Forward
 					</ContextMenuItem>

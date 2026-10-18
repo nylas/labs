@@ -9,7 +9,7 @@ import { BulkMailToolbar } from '#features/mail/components/BulkMailToolbar'
 import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
-import { RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
+import { REPLIES_PAUSED_TITLE, RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { ThreadListEnvironment, useThreadListEnvValue } from '#features/mail/components/ThreadListGroups'
@@ -972,7 +972,7 @@ function ActionButton({
 			type="button"
 			onClick={onClick}
 			aria-label={label}
-			title={paused ? 'Load the whole conversation to reply (Try again)' : label}
+			title={paused ? REPLIES_PAUSED_TITLE : label}
 			disabled={paused}
 			className="flex size-9 max-md:size-11 [@media(any-pointer:coarse)]:size-11 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-muted hover:text-foreground active:bg-muted/80 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50 xl:h-9 xl:w-9"
 		>

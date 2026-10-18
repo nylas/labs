@@ -1,5 +1,10 @@
 import type { Draft, Folder, Message, Thread } from '@nylas-labs/cli-kit/v3'
-import { type InfiniteData, infiniteQueryOptions, queryOptions } from '@tanstack/react-query'
+import {
+	type InfiniteData,
+	infiniteQueryOptions,
+	type QueryClient,
+	queryOptions,
+} from '@tanstack/react-query'
 import { accountScope } from '#app/lib/account-scope'
 import { requireValidMailSearchQuery } from '../lib/mail-search.js'
 import type { MessageHeaderFacts, ThreadHeaderFacts } from '../server/header-facts.js'
@@ -176,9 +181,18 @@ export const mailKeys = {
 	threadDetails: () => [...mailKeys.all, 'thread'] as const,
 	threadDetail: (threadId: string) =>
 		[...mailKeys.all, 'thread', requireCacheId(threadId, 'thread')] as const,
-	/** Which messages of a thread carry a List-Unsubscribe header (Conversation view only). */
-	threadListUnsubscribe: (threadId: string) =>
-		[...mailKeys.all, 'thread-list-unsubscribe', requireCacheId(threadId, 'thread')] as const,
+	/**
+	 * Which messages of a thread carry a List-Unsubscribe header (Conversation
+	 * view only). Keyed by the thread's newest message too, so a new reply is
+	 * looked up.
+	 */
+	threadListUnsubscribe: (threadId: string, latestMessageId = '') =>
+		[
+			...mailKeys.all,
+			'thread-list-unsubscribe',
+			requireCacheId(threadId, 'thread'),
+			latestMessageId && requireCacheId(latestMessageId, 'message'),
+		] as const,
 	/**
 	 * Facts derived from a thread's headers: authentication, Reply-To, list,
 	 * sender time zone. Keyed by the thread's newest message too, so a new
@@ -209,20 +223,31 @@ export const MAIL_HEADER_LOOKUP_KINDS: ReadonlySet<string> = new Set([
 
 /**
  * The ids of a thread's messages that declare themselves bulk mail. Headers do
- * not change, so one answer per account and thread is kept for the session; a
- * failed lookup is not retried, and the Conversation view then classifies on
- * the message bodies alone.
+ * not change, so one answer per account, thread and newest message is kept for
+ * the session, and a new reply asks once more while the earlier answer stays
+ * on screen; a failed lookup is not retried, and the Conversation view then
+ * classifies on the message bodies alone.
  */
 export function threadListUnsubscribeQueryOptions(
 	threadId: string,
+	latestMessageId: string | undefined,
 	fetchMessageIds: (threadId: string) => Promise<string[]>,
+	queryClient?: QueryClient,
 ) {
 	const safeThreadId = requireCacheId(threadId, 'thread')
 	return queryOptions({
-		queryKey: mailKeys.threadListUnsubscribe(safeThreadId),
+		queryKey: mailKeys.threadListUnsubscribe(safeThreadId, latestMessageId),
 		queryFn: () => fetchMessageIds(safeThreadId),
 		staleTime: Number.POSITIVE_INFINITY,
 		retry: false,
+		// The reader is drawn afresh for a new reply, so the thread's newest cached
+		// answer, not the observer's last one, stands in while the reply is looked up.
+		placeholderData: (): string[] | undefined =>
+			queryClient
+				?.getQueryCache()
+				.findAll({ queryKey: mailKeys.threadListUnsubscribe(safeThreadId).slice(0, MAIL_KEY_ARGUMENT + 1) })
+				.filter((query) => query.state.data !== undefined)
+				.sort((a, b) => b.state.dataUpdatedAt - a.state.dataUpdatedAt)[0]?.state.data as string[] | undefined,
 	})
 }
 
@@ -255,14 +280,20 @@ export function threadHeaderFactsQueryOptions(
 
 /**
  * Whether a query is one of the lookups kept for the session: the header
- * lookups, the per-row unread summary and the side-thread search. Each is
- * keyed by what it answers for, so a mail refresh never asks it again (and
- * must not: each costs paged provider calls).
+ * lookups and the side-thread search. Each is keyed by what it answers for,
+ * so a mail refresh never asks it again (and must not: each costs paged
+ * provider calls). The per-row unread summary is not one: read state changes
+ * in another tab or on another device, so a refresh asks it again.
  */
 export function isSessionMailLookup(queryKey: readonly unknown[]): boolean {
 	if (queryKey[0] === SIDE_THREAD_KIND) return true
 	const kind = queryKey[MAIL_KEY_KIND]
-	return queryKey[0] === 'mail' && typeof kind === 'string' && MAIL_HEADER_LOOKUP_KINDS.has(kind)
+	return (
+		queryKey[0] === 'mail' &&
+		typeof kind === 'string' &&
+		kind !== 'thread-unread-summary' &&
+		MAIL_HEADER_LOOKUP_KINDS.has(kind)
+	)
 }
 
 /** The first key part of the side-thread lookup, which lives outside the mail root. */

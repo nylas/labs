@@ -119,10 +119,6 @@ describe('lookalikeSender', () => {
 	it('trusts the same organisation, strangers, the owner and nameless senders', () => {
 		const sub = msg('m', { name: 'Meridian Bank', email: 'alerts@mail.meridianbank.com' }, [ADA])
 		expect(lookalikeSender(sub, known, OWNER)).toBeNull()
-		const sibling = msg('m', { name: 'Meridian Bank', email: 'alerts@news.meridianbank.com' }, [ADA])
-		expect(
-			lookalikeSender(sibling, [person({ name: 'Meridian Bank', email: 'x@mail.meridianbank.com' })], OWNER),
-		).toBeNull()
 		expect(
 			lookalikeSender(
 				fake,
@@ -150,11 +146,25 @@ describe('lookalikeSender', () => {
 		expect(lookalikeSender(fake, [saved], OWNER)).toBeNull()
 	})
 
-	it('names siblings under a public suffix by their hosts', () => {
+	it('names sibling hosts of one domain by their hosts, under any suffix', () => {
 		const sibling = msg('m', { name: 'Meridian Bank', email: 'alerts@news.meridian.co.uk' }, [ADA])
 		expect(
 			lookalikeSender(sibling, [person({ name: 'Meridian Bank', email: 'x@mail.meridian.co.uk' })], OWNER),
 		).toEqual({ name: 'Meridian Bank', usualDomain: 'mail.meridian.co.uk', domain: 'news.meridian.co.uk' })
+		const plain = msg('m', { name: 'Meridian Bank', email: 'alerts@news.meridianbank.com' }, [ADA])
+		expect(
+			lookalikeSender(plain, [person({ name: 'Meridian Bank', email: 'x@mail.meridianbank.com' })], OWNER),
+		).toEqual({
+			name: 'Meridian Bank',
+			usualDomain: 'mail.meridianbank.com',
+			domain: 'news.meridianbank.com',
+		})
+		const pages = msg('m', { name: 'Victim', email: 'a@attacker.github.io' }, [ADA])
+		expect(lookalikeSender(pages, [person({ name: 'Victim', email: 'a@victim.github.io' })], OWNER)).toEqual({
+			name: 'Victim',
+			usualDomain: 'victim.github.io',
+			domain: 'attacker.github.io',
+		})
 	})
 
 	it('names an address without a domain as it is', () => {

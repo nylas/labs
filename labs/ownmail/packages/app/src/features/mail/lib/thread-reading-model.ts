@@ -768,16 +768,19 @@ function fileChip(file: ThreadFile, versioned: boolean): string {
 	return extensionOf(file.filename) || file.filename
 }
 
-/** Every file in a thread, each once, families flattened in thread order. */
+/**
+ * Every file in a thread, each attachment once (the same id listed twice is
+ * one file), families flattened in thread order. Two attachments with their
+ * own ids are two files, whatever their names and sizes: a copy re-attached
+ * to a reply folds under the newer one as an earlier version, never dropped.
+ */
 function collectFiles(messages: MailMessage[], owner: string): ThreadFile[] {
 	const seen = new Set<string>()
 	return messages.flatMap((message) =>
 		(message.attachments ?? []).filter(isThreadFile).flatMap((attachment): ThreadFile[] => {
 			const filename = attachment.filename?.trim() || 'Untitled attachment'
-			// The same file attached again to a reply is the same file.
-			const identity = `${filename.toLowerCase()}|${attachment.size ?? ''}`
-			if (seen.has(identity)) return []
-			seen.add(identity)
+			if (seen.has(attachment.id)) return []
+			seen.add(attachment.id)
 			return [
 				{
 					attachmentId: attachment.id,
@@ -815,8 +818,8 @@ function fileFamilies(messages: MailMessage[], owner: string): ThreadFile[][] {
 
 /**
  * The files a thread carries, newest first: inline images, signature logos
- * and invitations are not files, a file re-attached to a reply counts once,
- * and versions of one file (v1…vN, -final, (1)) fold under the newest.
+ * and invitations are not files, and versions of one file (v1…vN, -final,
+ * (1), or the same name attached again) fold under the newest.
  */
 export function threadFiles(messages: MailMessage[], owner: string): ThreadFile[] {
 	return fileFamilies(messages, owner)

@@ -7,6 +7,7 @@ import {
 	inviteWhenLabel,
 	isDraftLatest,
 	isListAddress,
+	newCountLabel,
 	ownerFromMailbox,
 	pendingSendAt,
 	rowDateLabel,
@@ -465,6 +466,25 @@ describe('threadRowFacts', () => {
 		expect(threadRowFacts(roadmap, env())).not.toHaveProperty('file')
 		// Without knowing who "you" are, nothing asks you.
 		expect(threadRowFacts(roadmap, env({ owner: '', ownerFirstName: '' })).asksYou).toBe(false)
+	})
+
+	it('says the count is a floor when the lookup stopped at its cap with everything it read unread', () => {
+		const unread = [message({ id: 'a', unread: true }), message({ id: 'b', unread: true })]
+		const capped = unreadSummary(unread, ADA.email, true)
+		expect(capped).toEqual({ unreadCount: 2, moreUnread: true })
+		// A read message among them, or no cap, makes the count exact.
+		expect(unreadSummary([...unread, message({ id: 'c', unread: false })], ADA.email, true)).toEqual({
+			unreadCount: 2,
+		})
+		expect(unreadSummary(unread, ADA.email)).toEqual({ unreadCount: 2 })
+		expect(unreadSummary([], ADA.email, true)).toEqual({ unreadCount: 0 })
+		const long = thread({ id: 't', unread: true, message_ids: ['a', 'b', 'c'] })
+		const facts = threadRowFacts(long, env(), capped)
+		expect(facts).toMatchObject({ newCount: 2, newCountMore: true })
+		expect(newCountLabel(facts)).toBe('2+ new')
+		expect(threadRowLabel(facts)).toContain('unread, 2+ new')
+		expect(threadRowFacts(long, env(), { unreadCount: 2 })).not.toHaveProperty('newCountMore')
+		expect(newCountLabel({ newCount: 3 })).toBe('3 new')
 	})
 
 	it('counts nothing new on a read thread, a single message, or when every listed message is read', () => {

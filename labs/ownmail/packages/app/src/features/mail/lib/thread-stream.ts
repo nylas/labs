@@ -8,7 +8,6 @@
 
 import { isCalendarInvitationAttachment } from '#features/calendar/lib/calendar-invitation'
 import type { MailMessage } from '../state/mail-queries.js'
-import { messageBodyText } from './mail-ui-model.js'
 import {
 	type FoldItem,
 	firstName,
@@ -375,15 +374,6 @@ function safeZone(tz: string): string {
 		return tz
 	} catch {
 		return 'UTC'
-	}
-}
-
-/** A composer seeded with your own message, to send it again: its recipients, subject and text. */
-export function resendSeed(message: MailMessage): { to: string; subject: string; body: string } {
-	return {
-		to: [...(message.to ?? []), ...(message.cc ?? [])].map((person) => person.email).join(', '),
-		subject: message.subject ?? '',
-		body: messageBodyText(message),
 	}
 }
 

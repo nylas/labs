@@ -310,6 +310,13 @@ describe('board 05 and 06: header facts served by the dev mailbox', () => {
 		expect(data.some((message) => 'headers' in message)).toBe(false)
 	})
 
+	it('lists a thread newest first, as the provider does, so a capped lookup covers the newest', async () => {
+		const { data } = await mailbox.listMessages({ thread_id: 'thread-roadmap' })
+		expect(data.length).toBeGreaterThan(1)
+		const dates = data.map((message) => message.date)
+		expect(dates).toEqual([...dates].sort((a, b) => b - a))
+	})
+
 	it('verifies Alan and places him seven hours behind UTC', async () => {
 		const roadmap = await facts('thread-roadmap')
 		expect(roadmap['msg-roadmap-12']).toEqual({

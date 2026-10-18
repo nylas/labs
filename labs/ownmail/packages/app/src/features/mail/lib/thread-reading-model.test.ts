@@ -892,7 +892,7 @@ describe('files', () => {
 		expect(versionLabel(notes, NOW, TZ)).toBeNull()
 	})
 
-	it('skips inline images, signature logos, invitations and re-attached copies', () => {
+	it('skips inline images, signature logos and invitations, and lists an attachment id once', () => {
 		const messages = [
 			msg('a', GRACE, [ADA], {
 				date: 10,
@@ -907,10 +907,20 @@ describe('files', () => {
 					{ id: '8', filename: 'report.pdf', size: 10 },
 				],
 			}),
-			msg('b', ALAN, [ADA], { date: 20, attachments: [{ id: '9', filename: 'report.pdf', size: 10 }] }),
+			// The same id listed twice is one file.
+			msg('a2', GRACE, [ADA], { date: 15, attachments: [{ id: '8', filename: 'report.pdf', size: 10 }] }),
 		]
 		expect(threadFiles(messages, OWNER).map((f) => f.attachmentId)).toEqual(['6', '7', '8'])
 		expect(threadFiles(messages, OWNER)[1]?.filename).toBe('Untitled attachment')
+		// Distinct ids are distinct files, even with one name and size: the newer
+		// leads and the earlier stays on the shelf as its earlier version.
+		const twice = [
+			...messages,
+			msg('b', ALAN, [ADA], { date: 20, attachments: [{ id: '9', filename: 'report.pdf', size: 10 }] }),
+		]
+		const report = threadFiles(twice, OWNER).find((f) => f.filename === 'report.pdf')
+		expect(report?.attachmentId).toBe('9')
+		expect(report?.olderVersions.map((f) => f.attachmentId)).toEqual(['8'])
 		expect(threadFiles([], OWNER)).toEqual([])
 	})
 
