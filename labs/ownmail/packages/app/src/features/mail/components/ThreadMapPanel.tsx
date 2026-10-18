@@ -531,8 +531,8 @@ function MapBody({
 
 			<p className="map-footnote m-0 text-xs leading-[1.5] text-muted-foreground">
 				Opens from the dots beside the reader, or with{' '}
-				<kbd className="rounded-[3px] bg-muted px-control py-px font-data text-xs font-normal">g m</kbd>.
-				Clicking a row scrolls to it and opens it.
+				<kbd className="rounded-[3px] bg-muted font-data text-xs font-normal">g m</kbd>. Clicking a row
+				scrolls to it and opens it.
 			</p>
 		</div>
 	)

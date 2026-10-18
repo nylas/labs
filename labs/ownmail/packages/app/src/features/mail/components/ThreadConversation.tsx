@@ -61,6 +61,7 @@ import {
 	participantsLabel,
 	senderPerson,
 	shortDayLabel,
+	shownParticipants,
 	subjectStandIn,
 	supersededInvites,
 	systemEvents,
@@ -659,8 +660,9 @@ function ThreadConversationContent({
 				openIds,
 				...(clock ? { now: clock.now, tz: clock.tz } : {}),
 				breaksAfter: new Set(missing.keys()),
+				neighbourLines: !phone,
 			}),
-		[visible, owner, ownerFirstName, snapshot, targetId, expandedRuns, openIds, clock, missing],
+		[visible, owner, ownerFirstName, snapshot, targetId, expandedRuns, openIds, clock, missing, phone],
 	)
 	const divider = useMemo(() => {
 		const found = newSinceDivider(visible, snapshot, clock?.now ?? Date.now(), clock?.tz ?? 'UTC')
@@ -1272,11 +1274,7 @@ function ThreadConversationContent({
 		visible[0]?.body ?? visible[0]?.snippet ?? '',
 	)
 	const named = participantsLabel(people, 4)
-	const shownPeople = useMemo(() => {
-		const self = people.filter((person) => person.isOwner)
-		const others = people.filter((person) => !person.isOwner)
-		return [...others.slice(0, 4 - self.length), ...self]
-	}, [people])
+	const shownPeople = useMemo(() => shownParticipants(people, 4), [people])
 	const dates = visible.map((message) => message.date ?? 0).filter((date) => date > 0)
 	const span =
 		clock && dates.length > 0

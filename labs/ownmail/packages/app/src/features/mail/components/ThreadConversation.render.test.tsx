@@ -599,6 +599,23 @@ describe('ThreadConversation rendering', () => {
 })
 
 describe('folding a long thread', () => {
+	it('folds the open message’s read neighbour into the run on a phone (board 03)', () => {
+		vi.stubGlobal(
+			'matchMedia',
+			vi.fn((query: string) => ({
+				matches: query.includes('max-width'),
+				addEventListener: () => {},
+				removeEventListener: () => {},
+			})),
+		)
+		render(
+			<ThreadConversation thread={thread('t1')} messages={longThread(8)} mailboxEmail="ada@ownmail.com" />,
+		)
+		expect(screen.getByRole('button', { name: /6 earlier messages/ })).toBeInTheDocument()
+		// Only the first message stays a line.
+		expect(document.querySelectorAll('[data-slot="message-expand"]')).toHaveLength(1)
+	})
+
 	it('folds three or more read messages into one row that names who wrote them, and unfolds it into lines', () => {
 		render(
 			<ThreadConversation thread={thread('t1')} messages={longThread(8)} mailboxEmail="ada@ownmail.com" />,

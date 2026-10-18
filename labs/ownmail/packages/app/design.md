@@ -344,8 +344,12 @@ The list says what changed, so a row can be acted on without opening it.
 - People. A row names who is on the conversation, not only the last sender:
   the latest sender first, the person last as "you", first names, four at most
   and then "+n" in muted text ("Mary, Grace, Alan, you +1"). A lone
-  correspondent keeps their full name ("Alan Turing, you"). A nameless list
-  address on Cc is not a person.
+  correspondent keeps their full name ("Alan Turing, you"). A nameless address
+  on Cc (pm-leads@) is not a person; a mailing list (eng-all@) stands for the
+  members it reached. An organisation has no first name and keeps its whole
+  name everywhere a first name would go ("reply to Bright Smile Dental", never
+  "Bright"); a nameless list reads as its address ("eng-all@"), never as a
+  made-up first name.
 - Snippet. On a conversation with more than two people the snippet starts with
   its sender's first name ("Mary: …"). When the person wrote last it starts with
   the reply glyph and "You:".
@@ -622,6 +626,10 @@ reader only draws it.
    rows and what is left on either side folds again.
 5. Long threads. Over 50 messages the list is virtualised; the map and j/k
    still address every message.
+6. Phone. A phone has no room for the neighbours: only the first message
+   stays a one-line row, and the read messages next to an open one stay in
+   the folded run ("10 earlier messages" straight above "3 new since
+   Tuesday", board 03).
 
 ## New-since divider
 
@@ -737,7 +745,9 @@ time in `font-data` at 12px. Everything else is one click away.
   two at most and a count; "to everyone" when a reply reached everyone the
   message before it involved. Mail to a list is summarised by the list it came
   through, the list in the normal text colour at 500: "to eng-all@ and 238
-  others". The summary is muted, and set in the normal text
+  others". Every other label does the same: the thread header, a list row and
+  the reply card name the list and count the members who never wrote ("Alan,
+  eng-all@ +238"). The summary is muted, and set in the normal text
   colour only when the recipients changed from the message open directly
   above. It is a button that opens the details.
 - Details. A panel (glass from `sm` up, in the flow on a phone) under the
@@ -977,11 +987,12 @@ end and nothing else floating over the conversation.
   inset; the conversation keeps that much room under its last line
   (`.under-mobile-reply-bar`).
 - "{n} more new": a 36px panel-glass pill (a 44px target), 20px above the reply
-  bar, shown while messages that were new sit below the fold; it counts again
+  bar, its glass at 92% (`.jump-pill`) because it always floats over the
+  words being read, shown while messages that were new sit below the fold; it counts again
   as the stream scrolls or settles its height, and a tap scrolls to the next
   one and gives it focus.
-- The stream is the same fold plan as on desktop, with 17px / 1.55 bodies and
-  48px folded rows; the catch-up card stays on desktop, where the pill does not.
+- The stream is the desktop fold plan without the one-line neighbours
+  ("Folding", clause 6), with 17px / 1.55 bodies and 48px folded rows; the catch-up card stays on desktop, where the pill does not.
 
 ## Icon controls
 

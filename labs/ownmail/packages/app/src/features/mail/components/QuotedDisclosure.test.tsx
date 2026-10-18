@@ -175,7 +175,7 @@ describe('BodyDisclosures', () => {
 		const words = screen.getByText(/First\./)
 		expect(words).toHaveClass('whitespace-pre-line')
 		expect(words.textContent).toBe('First.\n\nSecond.')
-		expect(words.parentElement).toHaveClass('text-quiet-foreground', 'leading-[1.55]', 'px-4', 'py-3')
+		expect(words.parentElement).toHaveClass('text-quiet-foreground', 'leading-[1.55]', 'quoted-excerpt')
 	})
 
 	it('never links a forwarded message to the thread', async () => {

@@ -340,6 +340,8 @@
  * - `--bar-icon-fg`: the icons of the phone thread's top and bottom bars
  *   (Back, Archive, More, Reply, Forward): a step softer than body text, as
  *   board 03 draws them.
+ * - `--image-held` / `--image-held-stripe`: the two stripes of a held image's
+ *   placeholder (board 06, card 7), under its muted alt text.
  * - `--email-ink`: message text on a light email canvas (board 01's body
  *   text). The canvas stays light in either theme (an email's own dark
  *   rendering sets its own ink), so the value does not change with it.
@@ -379,6 +381,8 @@
 	--color-note-foreground: var(--note-fg);
 	--color-bar-icon-foreground: var(--bar-icon-fg);
 	--color-progress-track: var(--progress-track);
+	--color-image-held: var(--image-held);
+	--color-image-held-stripe: var(--image-held-stripe);
 	--shadow-reader-reply: var(--reader-reply-shadow);
 }
 
@@ -418,6 +422,8 @@
 	--bar-icon-fg: oklch(0.25 0.01 165);
 	/* A progress bar's empty track: a step lighter than the border (board 06, card 9). */
 	--progress-track: oklch(0.93 0.003 145);
+	--image-held: oklch(0.96 0.003 145);
+	--image-held-stripe: oklch(0.94 0.003 145);
 	--reader-reply-shadow: 0 8px 24px color-mix(in oklch, var(--foreground) 6%, transparent);
 	--email-ink: oklch(0.2 0.01 165);
 }
@@ -457,6 +463,8 @@
 	--note-fg: oklch(0.88 0.006 155);
 	--bar-icon-fg: oklch(0.9 0.006 155);
 	--progress-track: oklch(1 0 0 / 7%);
+	--image-held: oklch(0.22 0.014 165);
+	--image-held-stripe: oklch(0.24 0.014 165);
 	--reader-reply-shadow: 0 8px 24px oklch(0 0 0 / 30%);
 	--email-ink: oklch(0.2 0.01 165);
 }

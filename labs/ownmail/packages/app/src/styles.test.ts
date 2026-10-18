@@ -264,7 +264,11 @@ describe('mail list density styles', () => {
 			/\[data-density="compact"\] \.thread-row\s*\{\s*row-gap: 1px;\s*padding-block: 0\.625rem;/,
 		)
 		expect(densityBlock).toMatch(
-			/\[data-density="compact"\] \.thread-row-subject,\s*\[data-density="compact"\] \.thread-row-snippet,[^{]*\{\s*display: inline;/,
+			/\[data-density="compact"\] \.thread-row-summary,\s*\[data-density="condensed"\] \.thread-row-summary\s*\{\s*display: flex;\s*flex: 1;\s*flex-wrap: wrap;\s*min-width: 0;\s*height: 1\.25rem;\s*overflow: hidden;/,
+		)
+		// A snippet with under 6rem to say anything wraps out of sight instead of leaving " · …".
+		expect(densityBlock).toMatch(
+			/\[data-density="compact"\] \.thread-row-snippet,\s*\[data-density="condensed"\] \.thread-row-snippet\s*\{\s*flex: 1 1 6rem;\s*min-width: 6rem;/,
 		)
 		expect(densityBlock).toMatch(
 			/\[data-density="compact"\] \.thread-row-snippet:not\(:empty\)::before,[^{]*\{\s*content: " {2}· {2}";/,

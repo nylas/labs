@@ -160,7 +160,10 @@ export function ThreadRowLayout({
 					</>
 				)}
 			</span>
-			<div className="thread-row-text pointer-events-none relative z-10">
+			<div
+				className="thread-row-text pointer-events-none relative z-10"
+				data-end-signal={single ? '' : undefined}
+			>
 				<span className="thread-row-summary">
 					<span
 						data-stand-in={subjectIsStandIn || undefined}

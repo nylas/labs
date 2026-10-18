@@ -13,6 +13,7 @@ import {
 	type FoldItem,
 	firstName,
 	isBounceMessage,
+	isListAddress,
 	type Person,
 	type SystemEvent,
 	shortDayLabel,
@@ -218,8 +219,10 @@ export function knownPerson(participant: Participant, owner: string, known: read
 
 /**
  * "Mary, Grace, Alan" and how many more Reply all reaches: the sender (or
- * Reply-To) first, then To and Cc, without the owner. `known` are the people
- * the thread names, for addresses the message gives without a name.
+ * Reply-To) first, then To and Cc, without the owner. Mail that came through
+ * a mailing list names the list instead of its members ("Alan, eng-all@
+ * +238"). `known` are the people the thread names, for addresses the message
+ * gives without a name.
  */
 export function replyAllNames(
 	message: MailMessage,
@@ -230,13 +233,20 @@ export function replyAllNames(
 	const seen = new Set<string>()
 	const people: Person[] = []
 	const replyTo = message.reply_to?.length ? message.reply_to : (message.from ?? [])
-	for (const participant of [...replyTo, ...(message.to ?? []), ...(message.cc ?? [])]) {
+	let answered = 0
+	for (const [index, participant] of [...replyTo, ...(message.to ?? []), ...(message.cc ?? [])].entries()) {
 		const key = participant.email?.trim().toLowerCase()
 		if (!key || key === own || seen.has(key)) continue
 		seen.add(key)
 		people.push(knownPerson(participant, owner, known))
+		if (index < replyTo.length) answered = people.length
 	}
-	const named = people.slice(0, REPLY_CARD_NAMES).map((person) => firstName(person))
+	const throughList = people.some((person) => isListAddress(person.email))
+	const named = (
+		throughList ? people.filter((person, index) => index < answered || isListAddress(person.email)) : people
+	)
+		.slice(0, REPLY_CARD_NAMES)
+		.map((person) => firstName(person))
 	return { names: named.join(', '), more: people.length - named.length }
 }
 

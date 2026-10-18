@@ -15,7 +15,10 @@ import {
 	foldPlan,
 	foldRunKey,
 	isBounceMessage,
+	isListAddress,
+	isOrganisationName,
 	isThreadFile,
+	listLabel,
 	messageNewText,
 	newSinceDivider,
 	type Person,
@@ -30,6 +33,7 @@ import {
 	rowParticipants,
 	senderPerson,
 	shortDayLabel,
+	shownParticipants,
 	sinceDayLabel,
 	subjectChangeText,
 	subjectStandIn,
@@ -145,6 +149,26 @@ describe('people', () => {
 		expect(personName({ name: '', email: '', isOwner: false }, 'first')).toBe('Someone')
 	})
 
+	it('keeps an organisation’s whole name and names a nameless list by its address', () => {
+		expect(firstName({ name: 'Bright Smile Dental', email: 'hello@brightsmile.com' })).toBe(
+			'Bright Smile Dental',
+		)
+		expect(firstName({ name: 'The Dispatch', email: 'digest@dispatch.email' })).toBe('The Dispatch')
+		expect(firstName({ name: 'Mail Delivery Subsystem', email: 'mailer-daemon@ownmail.com' })).toBe(
+			'Mail Delivery Subsystem',
+		)
+		// A role mailbox makes any two-word name an organisation's; one word is the whole name anyway.
+		expect(firstName({ name: 'Northwind Legal', email: 'noreply@northwind.com' })).toBe('Northwind Legal')
+		expect(firstName({ name: 'Voyage', email: 'trips@voyage.com' })).toBe('Voyage')
+		expect(isOrganisationName('Voyage', 'hello@voyage.com')).toBe(false)
+		expect(isOrganisationName('Grace Hopper', 'grace@ownmail.com')).toBe(false)
+		expect(firstName({ name: '', email: 'eng-all@vercel.com' })).toBe('eng-all@')
+		expect(firstName({ name: 'Engineering', email: 'eng-all@vercel.com' })).toBe('Engineering')
+		expect(isListAddress(' All@vercel.com ')).toBe(true)
+		expect(isListAddress('pm-leads@vercel.com')).toBe(false)
+		expect(listLabel('eng-all@vercel.com')).toBe('eng-all@')
+	})
+
 	it('reads inverted and quoted display names', () => {
 		expect(firstName({ name: 'Turing, Alan', email: '' })).toBe('Alan')
 		expect(toPerson({ name: ' "Grace  Hopper" ', email: ' grace@ownmail.com ' }, OWNER)).toEqual({
@@ -225,6 +249,38 @@ describe('people', () => {
 			PM_LEADS.email,
 			ADA.email,
 		])
+	})
+})
+
+describe('mailing lists', () => {
+	const ENG_ALL = { email: 'eng-all@vercel.com' }
+	const members = Array.from({ length: 5 }, (_, i) => ({ name: `Alex ${i}`, email: `alex${i}@vercel.com` }))
+	const announcement = msg('f1', ALAN, [ENG_ALL], { cc: members })
+
+	it('names the list and counts the members it reached, as the header does', () => {
+		const people = threadParticipants([announcement], OWNER)
+		expect(people.map((p) => p.via)).toEqual([undefined, undefined, ...members.map(() => 'eng-all@')])
+		expect(participantsLabel(people)).toEqual({ names: 'Alan, eng-all@', more: 5 })
+		expect(shownParticipants(people).map((p) => p.email)).toEqual([ALAN.email, ENG_ALL.email])
+		expect(recipientSummary(announcement, undefined, OWNER).text).toBe('to eng-all@ and 5 others')
+	})
+
+	it('still names a member who writes in the thread', () => {
+		const reply = msg('f2', members[2], [ALAN, ENG_ALL])
+		const people = threadParticipants([announcement, reply], OWNER)
+		expect(participantsLabel(people)).toEqual({ names: 'Alan, eng-all@, Alex', more: 4 })
+		// With the owner on the thread, "you" stays last.
+		const withOwner = threadParticipants([announcement, msg('f3', ADA, [ENG_ALL])], OWNER)
+		expect(participantsLabel(withOwner)).toEqual({ names: 'Alan, eng-all@, you', more: 5 })
+	})
+
+	it('summarises a list row the same way', () => {
+		const row: MailThread = {
+			id: 'list',
+			participants: [ALAN, ENG_ALL, ...members, ADA],
+			latest_draft_or_message: { id: 'l', from: [ALAN] },
+		}
+		expect(rowParticipants(row, OWNER)).toEqual({ names: 'Alan, eng-all@, you', more: 5 })
 	})
 })
 
@@ -557,6 +613,15 @@ describe('foldPlan', () => {
 		expect(folded.ids).toEqual(['m1', 'm2', 'm3', 'm4', 'm5', 'm6', 'm7', 'm8', 'm9'])
 		expect(folded.key).toBe('m1')
 		expect(foldRunKey(messages, folded.indices)).toBe('m1')
+	})
+
+	it('folds the open messages’ read neighbours too on a phone (board 03)', () => {
+		const messages = longThread(14)
+		const items = foldPlan(messages, { ...base, unreadIds: ['m11', 'm12', 'm13'], neighbourLines: false })
+		expect(kinds(items)).toEqual(['line:0', 'folded:1,2,3,4,5,6,7,8,9,10', 'open:11', 'open:12', 'open:13'])
+		// A short run between open messages is still lines.
+		const short = foldPlan(messages.slice(0, 4), { ...base, unreadIds: ['m3'], neighbourLines: false })
+		expect(kinds(short)).toEqual(['line:0', 'line:1', 'line:2', 'open:3'])
 	})
 
 	it('leaves the span empty and shows only others when a folded run has no dates and no owner', () => {

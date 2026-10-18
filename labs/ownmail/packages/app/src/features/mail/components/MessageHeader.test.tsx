@@ -16,13 +16,15 @@ const GRACE = { name: 'Grace Hopper', email: 'grace@vercel.com' }
 const ALAN = { name: 'Alan Turing', email: 'alan@bletchley.dev' }
 const KATHERINE = { name: 'Katherine Johnson', email: 'katherine@vercel.com' }
 const NOW = Math.floor(Date.now() / 1000)
+/** Earlier today, even just after midnight, so the header shows a time and no weekday. */
+const SENT = NOW - Math.min(3600, Math.floor((Date.now() - new Date().setHours(0, 0, 0, 0)) / 2000))
 
 const alan: MailMessage = {
 	id: 'msg-12',
 	from: [ALAN],
 	to: [ADA, GRACE],
 	cc: [KATHERINE, { email: 'pm-leads@vercel.com' }],
-	date: NOW - 3600,
+	date: SENT,
 } as MailMessage
 
 function setup(props: Partial<Parameters<typeof MessageHeader>[0]> = {}) {
@@ -81,7 +83,7 @@ describe('MessageHeader', () => {
 		expect(summary()).not.toHaveClass('text-foreground')
 		const time = container.querySelector('time') as HTMLElement
 		expect(time.textContent).toMatch(/^\d{1,2}:\d{2} [AP]M$/)
-		expect(time).toHaveAttribute('dateTime', new Date((NOW - 3600) * 1000).toISOString())
+		expect(time).toHaveAttribute('dateTime', new Date(SENT * 1000).toISOString())
 		expect(time.getAttribute('title')).toMatch(/\d{4}/)
 		expect(screen.getByRole('group', { name: 'Message actions' })).toBeInTheDocument()
 	})
@@ -298,7 +300,7 @@ describe('MessageHeader', () => {
 			timeZone: '',
 		} as Intl.ResolvedDateTimeFormatOptions)
 		const { container } = setup()
-		expect(container.querySelector('time')).toHaveAttribute('title', longDateLabel(NOW - 3600, 'UTC'))
+		expect(container.querySelector('time')).toHaveAttribute('title', longDateLabel(SENT, 'UTC'))
 	})
 
 	it('renders no time on the server, so hydration never shows a guess', () => {

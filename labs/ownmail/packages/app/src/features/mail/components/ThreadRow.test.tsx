@@ -214,6 +214,8 @@ describe('ThreadRowContent', () => {
 		expect(row.querySelector('.thread-row-signals')).toBeNull()
 		expect(row.querySelector('.thread-row-labels')).toHaveTextContent('invoice-2041.pdf')
 		expect(row.querySelector('.thread-row-signal-collapsed')).toBeNull()
+		// The snippet stops short of the signal; without one it runs the full width.
+		expect(row.querySelector('.thread-row-text')).toHaveAttribute('data-end-signal', '')
 	})
 
 	it('loads nothing for a row off screen, or outside a query client', () => {
@@ -334,6 +336,7 @@ describe('ThreadRowContent', () => {
 		expect(screen.getByRole('img', { name: 'Has attachments' })).toBeInTheDocument()
 		// Labels stay in the reader: the board's rows carry none.
 		expect(container.querySelector('.thread-row-labels')).toBeNull()
+		expect(container.querySelector('.thread-row-text')).not.toHaveAttribute('data-end-signal')
 		expect(container).not.toHaveTextContent('Work')
 		expect(container.querySelector('.thread-row-sender')).toHaveTextContent('(unknown sender)')
 	})

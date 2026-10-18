@@ -22,7 +22,17 @@ import { blocksText, type CleanBlock, messageContent } from './clean-view.js'
 import { bubbleContent, normalSubject } from './conversation-model.js'
 import { messageBodyParagraphs, messageHasHtml, messagePreview } from './mail-ui-model.js'
 
-export type Person = { name: string; email: string; isOwner: boolean }
+export type Person = {
+	name: string
+	email: string
+	isOwner: boolean
+	/**
+	 * The mailing list a recipient came through ("eng-all@"), when the thread
+	 * went to one and this person never wrote in it: labels name the list and
+	 * count its members instead of naming them.
+	 */
+	via?: string
+}
 
 type Attachment = NonNullable<MailMessage['attachments']>[number]
 
@@ -179,17 +189,51 @@ export function firstNameFromAddress(address: string): string {
 	return word ? `${word.charAt(0).toUpperCase()}${word.slice(1)}` : ''
 }
 
+/** An address that names a mailing list by itself: eng-all@, pm-list@, all@. */
+export const LIST_LOCAL_PART = /(?:-all|-list|^all)$/i
+
+const localPart = (email: string): string => addressKey(email).split('@')[0] as string
+
+/** A mailing-list address, such as eng-all@, pm-list@ or all@. */
+export const isListAddress = (email: string): boolean => LIST_LOCAL_PART.test(localPart(email))
+
+/** How a list is named in running text: "eng-all@". */
+export const listLabel = (email: string): string => `${localPart(email)}@`
+
+/** Words that make a display name an organisation's: "The Dispatch", "Bright Smile Dental". */
+const ORGANISATION_NAME =
+	/^the\s|\b(?:bank|dental|dentist|clinic|subsystem|team|support|services?|inc|llc|ltd|gmbh|corp|company|group|labs|studio|store|shop|newsletter|digest|news|notifications?|alerts|billing|receipts|delivery|hotel|airlines?|insurance|pharmacy|health|medical|university|school|club)\b/i
+/** Mailboxes that send for an organisation rather than a person. */
+const ROLE_LOCAL_PART =
+	/^(?:no[-_.]?reply|do[-_.]?not[-_.]?reply|mailer-daemon|postmaster|notifications?|alerts?|support|billing|receipts?|news(?:letter)?|digest|hello|info|team|statements)$/i
+
+/**
+ * Whether a display name of two or more words belongs to an organisation,
+ * which has no first name to shorten to: "Bright Smile Dental", "The
+ * Dispatch", "Mail Delivery Subsystem", or a name sent from a role mailbox
+ * such as hello@ or noreply@. A single word is already the whole name.
+ */
+export function isOrganisationName(name: string, email: string): boolean {
+	const trimmed = name.trim()
+	if (!/\s/.test(trimmed)) return false
+	return ORGANISATION_NAME.test(trimmed) || ROLE_LOCAL_PART.test(localPart(email))
+}
+
 /**
  * "Grace" from "Grace Hopper", "Alan" from "Turing, Alan", and "Grace" from
  * grace@example.com when no name came with the address, so a person reads
- * the same in sentence case whether or not their mail carried a name.
+ * the same in sentence case whether or not their mail carried a name. An
+ * organisation keeps its whole name ("Bright Smile Dental") and a nameless
+ * mailing list reads as the list ("eng-all@"), never as a made-up first name.
  */
 export function firstName(person: Pick<Person, 'name' | 'email'>): string {
 	const name = person.name.trim()
 	if (name) {
+		if (isOrganisationName(name, person.email)) return name
 		const inverted = /^([^,]+),\s*(\S.*)$/.exec(name)
 		return ((inverted ? (inverted[2] as string) : name).split(' ')[0] as string).trim()
 	}
+	if (isListAddress(person.email)) return listLabel(person.email)
 	return firstNameFromAddress(person.email)
 }
 
@@ -252,11 +296,6 @@ const messagePeople = (message: MailMessage): EmailParticipant[] => [
 	...(message.cc ?? []),
 ]
 
-/** An address that names a mailing list by itself: eng-all@, pm-list@, all@. */
-export const LIST_LOCAL_PART = /(?:-all|-list|^all)$/i
-
-const localPart = (email: string): string => addressKey(email).split('@')[0] as string
-
 /**
  * People without the nameless addresses nobody writes from, such as a Cc'd
  * pm-leads@ list: they are recipients, not people on the thread. Kept when
@@ -268,32 +307,62 @@ function withoutSilentAddresses(people: Person[], speaks: (person: Person) => bo
 }
 
 /**
+ * Recipients summarised by the group they came through (board 06, card 11):
+ * when a mailing list is on the thread, everyone else who never writes in it
+ * is marked `via` that list, so labels name the list and count its members.
+ */
+function viaList(people: Person[], speaks: (person: Person) => boolean): Person[] {
+	const list = people.find((person) => !person.isOwner && isListAddress(person.email))
+	if (!list) return people
+	const via = listLabel(list.email)
+	return people.map((person) =>
+		person.isOwner || speaks(person) || isListAddress(person.email) ? person : { ...person, via },
+	)
+}
+
+/**
  * Everyone on a thread (From, To, Cc), in order of first appearance, the owner
- * last. A nameless address that never sends (a list on Cc) is not counted.
+ * last. A nameless address that never sends (a pm-leads@ on Cc) is not
+ * counted; a mailing list is, and stands for the recipients who came through it.
  */
 export function threadParticipants(messages: MailMessage[], owner: string): Person[] {
 	const senders = new Set(messages.map((message) => addressKey(message.from?.[0]?.email)))
-	const people = withoutSilentAddresses(uniquePeople(messages.flatMap(messagePeople), owner), (person) =>
-		senders.has(addressKey(person.email)),
+	const speaks = (person: Person) => senders.has(addressKey(person.email))
+	const people = viaList(
+		withoutSilentAddresses(
+			uniquePeople(messages.flatMap(messagePeople), owner),
+			(person) => speaks(person) || isListAddress(person.email),
+		),
+		speaks,
 	)
 	return [...people.filter((person) => !person.isOwner), ...people.filter((person) => person.isOwner)]
 }
 
 /**
- * "Grace, Alan, Katherine, you" and how many more. The owner stays in the
- * visible names, last, so a long thread still says you are on it.
+ * The people a label names, up to `max`: the others in order, then the owner,
+ * leaving out the members a mailing list stands for.
  */
-export function participantsLabel(people: Person[], max = 4): { names: string; more: number } {
+export function shownParticipants(people: Person[], max = 4): Person[] {
 	const limit = Math.max(1, max)
 	const owner = people.find((person) => person.isOwner)
-	const others = people.filter((person) => !person.isOwner)
-	const shown = owner ? [...others.slice(0, limit - 1), owner] : others.slice(0, limit)
+	const others = people.filter((person) => !person.isOwner && person.via === undefined)
+	return owner ? [...others.slice(0, limit - 1), owner] : others.slice(0, limit)
+}
+
+/**
+ * "Grace, Alan, Katherine, you" and how many more. The owner stays in the
+ * visible names, last, so a long thread still says you are on it. A list's
+ * members are counted, not named: "Alan, eng-all@ +238".
+ */
+export function participantsLabel(people: Person[], max = 4): { names: string; more: number } {
+	const shown = shownParticipants(people, max)
 	return { names: firstNames(shown).join(', '), more: people.length - shown.length }
 }
 
 /**
  * The thread-list row's people: the latest sender first, the owner last, a
- * nameless list address that is not the latest sender left out. A lone
+ * nameless address that is not the latest sender (a pm-leads@ on Cc) left
+ * out, and a mailing list standing for the members it reached. A lone
  * correspondent is named in full, with "you" only when the owner wrote last
  * ("Alan Turing, you"), since the owner is on nearly every inbox thread.
  */
@@ -303,9 +372,13 @@ export function rowParticipants(thread: MailThread, owner: string): { names: str
 		? thread.participants
 		: [...(latest?.from ?? []), ...(latest?.to ?? []), ...(latest?.cc ?? [])]
 	const lead = addressKey(latest?.ownmailDraft ? undefined : latest?.from?.[0]?.email)
-	const people = withoutSilentAddresses(
-		uniquePeople(source, owner),
-		(person) => addressKey(person.email) === lead,
+	const speaks = (person: Person) => addressKey(person.email) === lead
+	const people = viaList(
+		withoutSilentAddresses(
+			uniquePeople(source, owner),
+			(person) => speaks(person) || isListAddress(person.email),
+		),
+		speaks,
 	)
 	const others = people.filter((person) => !person.isOwner)
 	others.sort((a, b) => Number(addressKey(b.email) === lead) - Number(addressKey(a.email) === lead))
@@ -360,9 +433,9 @@ export function recipientSummary(
 		return { text: 'to everyone', changed: false }
 	}
 	// Mail sent to a list is summarised by the list it came through: "to eng-all@ and 238 others".
-	const list = recipients.find((person) => !person.isOwner && LIST_LOCAL_PART.test(localPart(person.email)))
+	const list = recipients.find((person) => !person.isOwner && isListAddress(person.email))
 	if (list) {
-		const group = `${localPart(list.email)}@`
+		const group = listLabel(list.email)
 		const others = recipients.length - 1
 		const rest = others === 0 ? '' : ` and ${others} ${others === 1 ? 'other' : 'others'}`
 		return { text: `to ${group}${rest}`, changed, group }
@@ -828,6 +901,12 @@ export type FoldOptions = {
 	tz?: string
 	/** Indices after which a run may not continue (a message there could not load). */
 	breaksAfter?: ReadonlySet<number>
+	/**
+	 * Whether a read message next to an open one stays a one-line row (the
+	 * default). The phone leaves it in the folded run, as board 03 draws it:
+	 * the first message, then "10 earlier messages", then the new ones.
+	 */
+	neighbourLines?: boolean
 }
 
 /** The key of a folded run: the id of its first message. */
@@ -837,8 +916,8 @@ export const foldRunKey = (messages: MailMessage[], indices: number[]): string =
 /**
  * How a thread lays out. Open: unread when opened, the latest, starred, a
  * message that names the owner, the linked message and any the reader opened.
- * One line: the first message and each read message next to an open one.
- * Folded: three or more of the rest in a row, as one stacked row naming who
+ * One line: the first message and each read message next to an open one
+ * (not on a phone, see `neighbourLines`). Folded: three or more of the rest in a row, as one stacked row naming who
  * wrote them and when. Shorter runs, and runs the reader expanded, are lines.
  * Folded rows name their senders in the order they wrote, the owner as "you".
  */
@@ -854,8 +933,10 @@ export function foldPlan(messages: MailMessage[], opts: FoldOptions): FoldItem[]
 			opts.openIds.has(message.id) ||
 			namesOwner(message, opts.owner, opts.ownerFirstName),
 	)
+	const neighbours = opts.neighbourLines ?? true
 	const line = messages.map(
-		(_, index) => !open[index] && (index === 0 || open[index - 1] || open[index + 1] === true),
+		(_, index) =>
+			!open[index] && (index === 0 || (neighbours && (open[index - 1] || open[index + 1] === true))),
 	)
 	const now = opts.now ?? Date.now()
 	const tz = opts.tz ?? Intl.DateTimeFormat().resolvedOptions().timeZone

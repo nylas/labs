@@ -284,6 +284,24 @@ describe('reply names', () => {
 		expect(knownPerson({ email: 'kj@example.com' }, OWNER, known).name).toBe('')
 	})
 
+	it('names the list a message came through instead of its members (board 06, card 11)', () => {
+		const members = Array.from({ length: 4 }, (_, i) => ({
+			name: `Alex ${i}`,
+			email: `alex${i}@example.com`,
+		}))
+		const announcement = message('m', {
+			from: [ALAN],
+			to: [{ email: 'eng-all@example.com' }],
+			cc: [ADA, ...members],
+		})
+		expect(replyAllNames(announcement, OWNER)).toEqual({ names: 'Alan, eng-all@', more: 4 })
+		// A Reply-To keeps its place before the list.
+		expect(replyAllNames({ ...announcement, reply_to: [GRACE, ALAN] }, OWNER)).toEqual({
+			names: 'Grace, Alan, eng-all@',
+			more: 4,
+		})
+	})
+
 	it('has no one to name on a message with no sender', () => {
 		expect(replyAllNames(message('m', { from: [], to: [] }), OWNER)).toEqual({ names: '', more: 0 })
 		expect(replyFirstName(message('m', { from: undefined }), OWNER)).toBe('')

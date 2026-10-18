@@ -17,6 +17,10 @@ export const EDGE_GHOST_CLASS = `${EDGE_ACTION_BASE} bg-transparent font-medium 
 /** A destructive text action (Discard): the danger colour on the same ghost shape. */
 export const EDGE_DANGER_GHOST_CLASS = `${EDGE_ACTION_BASE} bg-transparent font-medium text-danger-soft-foreground hover:bg-danger-soft`
 
-/** An inline text link inside a sentence ("Show", "Open", "Earlier versions"). */
+/**
+ * An inline text link inside a sentence ("Show", "Open", "Earlier versions"),
+ * in the link green (`--cta-icon`), which stays green in the dark theme where
+ * `--primary` turns near-white.
+ */
 export const EDGE_LINK_CLASS =
-	'inline-flex shrink-0 items-center rounded-sm text-xs font-semibold text-primary hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11'
+	'inline-flex shrink-0 items-center rounded-sm text-xs font-semibold text-cta-icon hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring max-md:min-h-11 [@media(any-pointer:coarse)]:min-h-11'

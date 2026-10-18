@@ -168,7 +168,7 @@ export function BodyDisclosures({
 				</div>
 			) : null}
 			{quotedOpen ? (
-				<div id={quotedId} data-slot="body-quoted" className="mt-4 flex flex-col gap-2">
+				<div id={quotedId} data-slot="body-quoted" className="quoted-history flex flex-col gap-2">
 					{quoted.map((entry, index) => {
 						// Only a quote with an address can be found in the thread; a forward is never in it.
 						const email = onGoToQuoted && !entry.forwarded ? entry.email : undefined
@@ -180,7 +180,7 @@ export function BodyDisclosures({
 								// Quoted entries never reorder; the index keeps repeated words distinct.
 								// biome-ignore lint/suspicious/noArrayIndexKey: entries are positional.
 								key={index}
-								className="rounded-md bg-secondary px-4 py-3 text-sm leading-[1.55] text-quiet-foreground"
+								className="quoted-excerpt rounded-md bg-secondary text-sm leading-[1.55] text-quiet-foreground"
 							>
 								{header ? <div className="mb-1 text-xs font-semibold">{header}</div> : null}
 								{entry.text ? (
@@ -191,7 +191,7 @@ export function BodyDisclosures({
 								{linked ? (
 									<button
 										type="button"
-										className={`${EDGE_LINK_CLASS} mt-1`}
+										className={`${EDGE_LINK_CLASS} quoted-excerpt-link`}
 										onClick={() =>
 											(onGoToQuoted as GoToQuoted)({
 												name: entry.name,
