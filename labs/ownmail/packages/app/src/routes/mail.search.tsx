@@ -10,6 +10,7 @@ import { useCompose } from '#features/mail/components/ComposeProvider'
 import { ListDensityMenu } from '#features/mail/components/ListDensityMenu'
 import { MobileReplyBar } from '#features/mail/components/MobileReplyBar'
 import { REPLIES_PAUSED_TITLE, RepliesPausedNotice } from '#features/mail/components/PartialLoadNotice'
+import { ReadingPaneDivider } from '#features/mail/components/ReadingPaneDivider'
 import { ReadingPaneMenu } from '#features/mail/components/ReadingPaneMenu'
 import { ThreadConversation } from '#features/mail/components/ThreadConversation'
 import { ThreadListEnvironment, useThreadListEnvValue } from '#features/mail/components/ThreadListGroups'
@@ -34,7 +35,7 @@ import {
 	threadRouteFolderId,
 	threadTimestamp,
 } from '#features/mail/lib/mail-ui-model'
-import { readingPaneLayout } from '#features/mail/lib/reading-pane'
+import { readingPaneLayout, readingPaneSizeStyle } from '#features/mail/lib/reading-pane'
 import { replyBase, replyTarget, streamMessages } from '#features/mail/lib/thread-stream'
 import { cachedCorrespondents, findCachedThread } from '#features/mail/state/mail-cache'
 import {
@@ -153,7 +154,8 @@ function cachedSearchThreads(queryClient: QueryClient, q: string, folderId?: str
 function SearchPending() {
 	const { q, folderId, threadId } = Route.useSearch()
 	const queryClient = useQueryClient()
-	const [{ readingPane, listDensity }] = useUserPreferences()
+	const [preferences] = useUserPreferences()
+	const { readingPane, listDensity } = preferences
 	const listRef = useRef<HTMLDivElement>(null)
 	const listIdentity = searchListIdentity(q, folderId)
 	useLayoutEffect(() => {
@@ -166,7 +168,12 @@ function SearchPending() {
 	const layout = readingPaneLayout(readingPane, Boolean(selectedThreadId))
 	const threads = hasSearchQuery ? cachedSearchThreads(queryClient, q, folderId) : undefined
 	return (
-		<div data-testid="search-pending" aria-busy="true" className={layout.container}>
+		<div
+			data-testid="search-pending"
+			aria-busy="true"
+			className={layout.container}
+			style={readingPaneSizeStyle(preferences)}
+		>
 			<section data-navigation-region="mail-list" className={layout.list} data-density={listDensity}>
 				<Toolbar pinned className="justify-between px-4">
 					<h1 className="font-display text-base font-semibold capitalize">
@@ -373,7 +380,7 @@ function SearchResults() {
 
 	return (
 		<ThreadListEnvironment value={listEnv}>
-			<div className={layout.container}>
+			<div className={layout.container} style={readingPaneSizeStyle(preferences)}>
 				<section
 					data-navigation-region="mail-list"
 					className={layout.list}
@@ -501,6 +508,7 @@ function SearchResults() {
 						) : null}
 					</div>
 				</section>
+				<ReadingPaneDivider />
 				<section data-navigation-region="mail-reader" className={layout.reader}>
 					{selected ? (
 						<SearchThreadDetail

@@ -19,6 +19,18 @@ export type ReadingPane = 'none' | 'vertical' | 'horizontal'
 
 export const READING_PANES: readonly ReadingPane[] = ['none', 'vertical', 'horizontal']
 
+/** Bounds of a dragged vertical-split list width, in CSS pixels. */
+export const READING_PANE_LIST_WIDTH_RANGE = { min: 240, max: 1600 } as const
+
+/** Bounds of a dragged horizontal-split list height, as a percentage of the panes. */
+export const READING_PANE_LIST_HEIGHT_RANGE = { min: 10, max: 85 } as const
+
+function paneSize(value: unknown, range: { min: number; max: number }): number | null {
+	return typeof value === 'number' && Number.isInteger(value) && value >= range.min && value <= range.max
+		? value
+		: null
+}
+
 /** How much of each conversation a mail-list row shows. Compact and Condensed
  * apply only with a mouse or trackpad on desktop layouts; touch and mobile
  * layouts always keep the Default row. */
@@ -60,6 +72,10 @@ export type UserPreferences = {
 	emailColorMode: 'automatic' | 'original'
 	remoteImagePolicy: RemoteImagePolicy
 	readingPane: ReadingPane
+	/** The vertical-split list width the person dragged to, in pixels; `null` keeps the default. */
+	readingPaneListWidth: number | null
+	/** The horizontal-split list height the person dragged to, in percent; `null` keeps the default. */
+	readingPaneListHeight: number | null
 	listDensity: ListDensity
 	threadView: ThreadView
 	primaryTimezone: string
@@ -119,6 +135,8 @@ export function defaultUserPreferences(): UserPreferences {
 		emailColorMode: 'automatic',
 		remoteImagePolicy: 'ask',
 		readingPane: 'vertical',
+		readingPaneListWidth: null,
+		readingPaneListHeight: null,
 		listDensity: 'default',
 		threadView: 'messages',
 		primaryTimezone: browserTimezone(),
@@ -320,6 +338,8 @@ export function normalizePreferences(value: unknown): UserPreferences {
 		readingPane: READING_PANES.includes(input.readingPane as ReadingPane)
 			? (input.readingPane as ReadingPane)
 			: 'vertical',
+		readingPaneListWidth: paneSize(input.readingPaneListWidth, READING_PANE_LIST_WIDTH_RANGE),
+		readingPaneListHeight: paneSize(input.readingPaneListHeight, READING_PANE_LIST_HEIGHT_RANGE),
 		listDensity: LIST_DENSITIES.includes(input.listDensity as ListDensity)
 			? (input.listDensity as ListDensity)
 			: 'default',

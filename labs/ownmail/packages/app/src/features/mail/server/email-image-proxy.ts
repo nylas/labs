@@ -176,10 +176,12 @@ export function publicIpAddress(value: string): boolean {
 async function defaultResolveHost(hostname: string): Promise<string[]> {
 	if (ipv4Parts(hostname) || ipv6Parts(hostname)) return [hostname]
 	const [ipv4, ipv6] = await Promise.allSettled([dns.resolve4(hostname), dns.resolve6(hostname)])
+	// Workers' node:dns returns CNAME chain targets alongside the addresses. Keep
+	// only address answers; every one of them is still validated as public.
 	return [
 		...(ipv4.status === 'fulfilled' ? ipv4.value : []),
 		...(ipv6.status === 'fulfilled' ? ipv6.value : []),
-	]
+	].filter((answer) => ipv4Parts(answer) || ipv6Parts(answer))
 }
 
 async function validatedImageRequest(

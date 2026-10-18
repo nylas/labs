@@ -286,6 +286,13 @@ The transition tests live in `src/routes/-content-ready-transitions.test.tsx`.
   toolbar or the command palette. Narrow screens always replace the list.
   Closing a conversation returns focus to its row; triage auto-advances only
   while the list is visible beside the reader.
+- The split is resizable: a separator between the list and the reader is
+  dragged (or moved with the arrow keys) to size the list, double-clicked to
+  restore the default, and dragged to the edge to switch to no split. The
+  vertical list defaults to 22.5rem (360px, board 01) and the horizontal list
+  to 40% of the height; a dragged size (240 to 1600px wide, 10 to 85% high) is
+  a device preference that replaces either default. The reader always keeps at
+  least 360px beside or 160px below the list.
 
 ## List density
 
@@ -298,10 +305,12 @@ the list toolbar or the command palette.
 - Compact: two lines (people and time, then subject and snippet on one line),
   about 62 pixels.
 - Condensed: one line (people, subject and snippet, time), 34 pixels. The
-  vertical split widens the list from 22.5rem (360px, as board 01 draws it) to 26rem for it, in the same media
-  query as the rows, so the preference changes no layout where it does not
-  apply. A bundle keeps the same columns: its title and count in the people
-  column at their 13px, who sent it in the subject column.
+  vertical split widens the default list from 22.5rem (360px, as board 01
+  draws it) to 26rem for it, in the same media query as the rows, so the
+  preference changes no layout where it does not apply. A width the person
+  dragged to replaces either default. A bundle keeps the same columns: its
+  title and count in the people column at their 13px, who sent it in the
+  subject column.
 - Compact and Condensed apply only with a fine pointer (mouse or trackpad) on
   desktop layouts. Mobile layouts and any touch-capable device always get the
   Default row, never under 48 pixels, and the toolbar control is hidden there

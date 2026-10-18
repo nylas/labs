@@ -161,6 +161,22 @@ describe('public image destination validation', () => {
 		await expect(validatePublicImageUrl('https://v4.example/a')).resolves.toBeInstanceOf(URL)
 		await expect(validatePublicImageUrl('https://v6.example/a')).resolves.toBeInstanceOf(URL)
 	})
+
+	it('ignores CNAME targets that Workers DNS returns alongside addresses', async () => {
+		dnsMocks.resolve4
+			.mockResolvedValueOnce(['cdn.images.example.net.', '17.253.27.141'])
+			.mockResolvedValueOnce(['cdn.images.example.net.', '10.0.0.1'])
+			.mockResolvedValueOnce(['cdn.images.example.net.'])
+		dnsMocks.resolve6
+			.mockResolvedValueOnce(['cdn.images.example.net.', '2620:149:a23:f000::152'])
+			.mockRejectedValueOnce(new Error('no AAAA'))
+			.mockRejectedValueOnce(new Error('no AAAA'))
+		await expect(validatePublicImageUrl('https://cname.example/a')).resolves.toBeInstanceOf(URL)
+		await expect(validatePublicImageUrl('https://cname.example/a')).rejects.toMatchObject({
+			code: 'blocked_address',
+		})
+		await expect(validatePublicImageUrl('https://cname.example/a')).rejects.toMatchObject({ code: 'dns' })
+	})
 })
 
 describe('remote image fetch policy', () => {
