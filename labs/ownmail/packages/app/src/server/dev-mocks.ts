@@ -16,6 +16,7 @@ import type {
 	Thread,
 } from '@nylas-labs/cli-kit/v3'
 import { threadFoldersAfterMove } from '#features/mail/server/mail-folders'
+import type { DevMocks } from './dev-mailbox.js'
 import {
 	ACCOUNT,
 	DESIGN_REVIEW_UID,
@@ -1211,3 +1212,9 @@ function eventRange(event: Event): { start: number; end: number } {
 	return { start: when.time, end: when.time }
 }
 /* v8 ignore stop -- @preserve */
+
+/**
+ * The mock mailbox under the name `dev-mailbox.ts` exports: the local builds
+ * (`vite.config.local.ts`) resolve that module to this one.
+ */
+export const devMocks: DevMocks = { createDevMailbox, devMailboxEmail, devMailboxName }

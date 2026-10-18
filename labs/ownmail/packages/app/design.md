@@ -838,8 +838,10 @@ glyph, 13px text, the 6px plane radius. Never a rail.
   reply-all guard, else "a mailing list"; "Sent through a mailing list." when
   no recipient is the list, rather than an address made up from its List-Id.
   Then "Mute thread" ("Unmute thread" on a muted thread) and, when the list
-  offers one, "Leave list". A thread says it once, on its first open message
-  from the list, not on every reply.
+  offers one, "Leave list". "Leave list" is the sender's own link, so it is
+  left out whenever that message's links are disabled (failed checks, a
+  lookalike, or checks that have not answered). A thread says it once, on its
+  first open message from the list, not on every reply.
 - Amber and red are tokens (`--notice-warning`, `--notice-danger`, each with a
   `-line` and an `-fg`), 4.5:1 or better in both themes. The owner's own mail
   raises no notice.
@@ -889,10 +891,13 @@ link inside a sentence; all keep the 44px floor on touch.
   provider's scheduled-send API, and neither ever deletes the only copy:
   the whole message (To, Cc, Bcc, subject, HTML body, files and its place in
   the thread) is saved as a draft before its schedule is cancelled. Send now
-  then sends the same message at once, in its thread, and removes that draft;
-  if the send fails the draft stays and the reader says "Couldn’t send. Saved
-  as a draft." and opens it in the composer. Cancel opens the composer on the
-  draft, which carries its Cc and Bcc through every save and the send. A
+  then sends the same message at once, in its thread, and removes that draft
+  (trying twice; if it still stays, it says "Sent. The safety copy in Drafts
+  couldn’t be removed — delete it so it isn’t sent twice."); if the send fails
+  the draft stays and the reader says "Couldn’t send. Saved as a draft." and
+  opens it in the composer. Cancel opens the composer on the draft, which
+  carries its Cc, Bcc and files through every save and the send (Edit and
+  resend's draft keeps its files the same way). A
   schedule that cannot be cancelled keeps sending as planned and its copy is
   removed. A failure is said on the reader (or on the list row, whose menu
   offers the same two). Both stay at the message's place in the
@@ -937,8 +942,8 @@ link inside a sentence; all keep the 44px floor on touch.
 - One very long message. Past 1,500 words of new text: "6 min read · 38%" over
   a 4px `--primary` progress bar on a `--progress-track` track, and an outline of the message's own headings
   (a 130px right column from `xl`, an Outline disclosure below it; the current
-  section is semibold). The position is kept per message for the session, so
-  reopening returns to where the reader stopped.
+  section is semibold). The position is kept per mailbox and message for the
+  session, so reopening returns to where the reader stopped.
 - Hard-wrapped plain text. Lines of 40 to 80 characters inside a paragraph join
   the next line unless it starts a list item, a quote or an indent. Every
   paragraph takes its direction from its own text (`dir="auto"`), and an

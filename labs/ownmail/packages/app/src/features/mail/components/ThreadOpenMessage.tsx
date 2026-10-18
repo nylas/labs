@@ -187,6 +187,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 							knownSenders={knownSenders}
 							muted={muted}
 							checksUnavailable={unchecked === 'failed'}
+							linksOff={inert}
 							onMuteThread={actions.onMuteThread}
 							{...(actions.repliesPaused
 								? {}
@@ -202,7 +203,7 @@ export const ThreadOpenMessage = memo(function ThreadOpenMessage({
 						)}
 						<EmptyBody message={message} owner={owner} />
 					</ThreadColumn>
-					<LongMessageFrame messageId={message.id} text={longText} headings={headings}>
+					<LongMessageFrame account={owner} messageId={message.id} text={longText} headings={headings}>
 						<MessageBody
 							message={message}
 							darkenEmail={display.darkenEmail}

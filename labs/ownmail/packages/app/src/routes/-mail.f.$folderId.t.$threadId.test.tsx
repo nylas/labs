@@ -1905,6 +1905,11 @@ describe('what the reader is given beyond the thread', () => {
 				draftId: 'd-unsent',
 				error: 'Couldn’t send. Saved as a draft.',
 			})
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'm-out',
+				message: { id: 'm-sent' },
+				warning: 'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			})
 		cancelScheduledSend
 			.mockRejectedValueOnce(new Error('x'))
 			.mockResolvedValueOnce({ cancelledMessageId: 'm-out', draftId: 'd-cancelled' })
@@ -1946,6 +1951,14 @@ describe('what the reader is given beyond the thread', () => {
 		await waitFor(() =>
 			expect(composeApi.openCompose).toHaveBeenCalledWith({ kind: 'draft', draftId: 'd-unsent' }),
 		)
+		// A send that went but left its safety copy in Drafts says so, and opens nothing.
+		fireEvent.click(status().getByText('Send now'))
+		expect(
+			await screen.findByText(
+				'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			),
+		).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
 	})
 
 	it('names the folder the phone back button returns to, and gives the reply bar its room', () => {

@@ -184,6 +184,12 @@ export function ComposeWindow({
 	// A draft's Cc and Bcc (a cancelled scheduled message keeps them) go with
 	// every save and the send, since a draft update replaces the whole draft.
 	const keptRecipients = useMemo(() => copiedRecipients(draft), [draft])
+	// So do the files it already holds (a cancelled scheduled message's, or a
+	// bounced one copied to resend): the composer names them, the server keeps them.
+	const keptAttachments = useMemo(
+		() => (draft?.attachments ?? []).map((attachment) => attachment.filename ?? 'attachment'),
+		[draft],
+	)
 	const [body, setBody] = useState(draftBody)
 	const initialFocusTarget = useRef(composeFocusTarget({ to, subject, isReply: Boolean(replyToMessageId) }))
 	const [busy, setBusy] = useState(false)
@@ -264,6 +270,7 @@ export function ComposeWindow({
 				// Enveloped so reloading can tell markdown from legacy HTML drafts.
 				body: body ? markdownToDraftBody(body) : '',
 				...(attachments.length ? { attachments } : {}),
+				...(keptAttachments.length ? { keepAttachments: keptAttachments } : {}),
 				...(replyToMessageId ? { replyToMessageId } : {}),
 			})
 			draftIdRef.current = savedDraft.draftId
@@ -276,7 +283,7 @@ export function ComposeWindow({
 			}
 			return savedDraft.draftId
 		},
-		[saveDraft, keptRecipients],
+		[saveDraft, keptRecipients, keptAttachments],
 	)
 
 	const queueDraftPersistence = useCallback(

@@ -29,7 +29,11 @@ import {
 	type ThreadHeaderFacts,
 } from './header-facts.js'
 import { threadFoldersAfterMove } from './mail-folders.js'
-import { normalizeOutboundAttachments, type OutboundAttachment } from './outbound-attachments.js'
+import {
+	MAX_JSON_ATTACHMENTS,
+	normalizeOutboundAttachments,
+	type OutboundAttachment,
+} from './outbound-attachments.js'
 import { parseRecipientEmails } from './recipients.js'
 import { threadSearchParams } from './search.js'
 import { normalizeThreadListInput, type ThreadListInput } from './thread-list.js'
@@ -567,6 +571,10 @@ export const sendMessage = createServerFn({ method: 'POST' })
 /** What "Send now" answers when the provider refused the send: the message is kept as a draft. */
 export const SCHEDULED_SEND_FAILED = 'Couldn’t send. Saved as a draft.'
 
+/** What "Send now" answers when the message went but its safety copy is still in Drafts. */
+export const SCHEDULED_SEND_COPY_KEPT =
+	'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.'
+
 type ScheduledMailbox = AttachmentDownloader & {
 	getMessage(messageId: string): Promise<{ data: Message }>
 	getThread(threadId: string): Promise<{ data: Thread }>
@@ -667,9 +675,11 @@ export const cancelScheduledSend = createServerFn({ method: 'POST' })
 /**
  * Sends a scheduled message now. Its content and files are read and saved as
  * a draft first, its schedule is cancelled, and the same message goes out at
- * once, in its thread. Once it has gone the safety draft is removed; when the
- * send fails the draft stays, and the receipt names it with
- * `SCHEDULED_SEND_FAILED` so the reader can open it.
+ * once, in its thread. Once it has gone the safety draft is removed (tried
+ * twice; if it still stays, the receipt warns with `SCHEDULED_SEND_COPY_KEPT`,
+ * since sending that copy would send the message again). When the send fails
+ * the draft stays, and the receipt names it with `SCHEDULED_SEND_FAILED` so
+ * the reader can open it.
  */
 export const sendScheduledNow = createServerFn({ method: 'POST' })
 	.validator(scheduledInput)
@@ -678,7 +688,7 @@ export const sendScheduledNow = createServerFn({ method: 'POST' })
 			data,
 		}): Promise<
 			{ cancelledMessageId: string; folders?: Folder[] } & (
-				| { message: Message }
+				| { message: Message; warning?: string }
 				| { draftId: string; error: string }
 			)
 		> => {
@@ -706,8 +716,17 @@ export const sendScheduledNow = createServerFn({ method: 'POST' })
 				})
 			}
 			// The message has gone; a copy left behind only risks sending it twice.
-			await mailbox.deleteDraft(copy.draftId).catch(() => {})
-			return mailReceipt(mailbox, grantId, { cancelledMessageId: copy.message.id, message: sent })
+			const removeCopy = () =>
+				mailbox.deleteDraft(copy.draftId).then(
+					() => true,
+					() => false,
+				)
+			const removed = (await removeCopy()) || (await removeCopy())
+			return mailReceipt(mailbox, grantId, {
+				cancelledMessageId: copy.message.id,
+				message: sent,
+				...(removed ? {} : { warning: SCHEDULED_SEND_COPY_KEPT }),
+			})
 		},
 	)
 
@@ -802,6 +821,40 @@ function copiedRecipientsPayload(data: { ccList?: string[]; bccList?: string[] }
 	}
 }
 
+/**
+ * Files a draft already holds when the composer opens it (a cancelled
+ * scheduled message's, or a bounced message copied for Edit and resend), by
+ * file name. The composer does not hold their contents, but names them on
+ * every save, because a draft update replaces the whole draft: the server
+ * copies them from the draft as it is now, next to the composer's own files.
+ */
+function keptAttachmentNames(input: unknown): string[] | undefined {
+	if (input === undefined) return undefined
+	if (
+		!Array.isArray(input) ||
+		input.length > MAX_JSON_ATTACHMENTS ||
+		input.some((name) => typeof name !== 'string' || name.length === 0 || name.length > 255)
+	) {
+		throw new Error('Invalid attachments')
+	}
+	return input.length > 0 ? (input as string[]) : undefined
+}
+
+const attachmentName = (attachment: NonNullable<Draft['attachments']>[number]): string =>
+	(attachment.filename ?? 'attachment').trim()
+
+/** A draft's files named in `names`, each name taking one file, in the draft's order. */
+function keptDraftAttachments(draft: Draft, names: string[]): Draft {
+	const wanted = names.map((name) => name.trim())
+	const attachments = (draft.attachments ?? []).filter((attachment) => {
+		const index = wanted.indexOf(attachmentName(attachment))
+		if (index < 0) return false
+		wanted.splice(index, 1)
+		return true
+	})
+	return { ...draft, attachments }
+}
+
 export const saveDraft = createServerFn({ method: 'POST' })
 	.validator(
 		(
@@ -812,6 +865,8 @@ export const saveDraft = createServerFn({ method: 'POST' })
 				body: string
 				replyToMessageId?: string
 				attachments?: OutboundAttachment[]
+				/** Names of files the draft already holds that stay on it (see `keptAttachmentNames`). */
+				keepAttachments?: string[]
 			} & CopiedRecipientsInput,
 		) => {
 			const message = normalizeMessageFields(input)
@@ -821,18 +876,31 @@ export const saveDraft = createServerFn({ method: 'POST' })
 				toList: parseRecipientEmails(message.to, { required: false }),
 				...copiedRecipients(input),
 				attachments: normalizeOutboundAttachments(input.attachments),
+				keepAttachments: keptAttachmentNames(input.keepAttachments),
 			}
 		},
 	)
 	.handler(async ({ data }) => {
 		const { mailbox, grantId } = await requireMailbox()
 		try {
+			// Saving an existing draft replaces it whole: the files it already holds go
+			// back on it with the composer's own, or they would be lost.
+			const kept =
+				data.draftId && data.keepAttachments
+					? await restoreDraftAttachments(
+							mailbox,
+							keptDraftAttachments((await mailbox.getDraft(data.draftId)).data, data.keepAttachments),
+						)
+					: []
+			const attachments = kept.length
+				? normalizeOutboundAttachments([...kept, ...(data.attachments ?? [])])
+				: data.attachments
 			const payload = {
 				to: data.toList.map((email) => ({ email })),
 				...copiedRecipientsPayload(data),
 				subject: data.subject,
 				body: data.body,
-				...(data.attachments ? { attachments: data.attachments } : {}),
+				...(attachments ? { attachments } : {}),
 				...(data.replyToMessageId ? { reply_to_message_id: data.replyToMessageId } : {}),
 			}
 			const saved = data.draftId

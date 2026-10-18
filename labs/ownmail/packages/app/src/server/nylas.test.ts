@@ -23,11 +23,15 @@ vi.mock('./session.js', () => ({
 
 const devMailbox = { kind: 'dev-mailbox' }
 const devMailboxNameMock = vi.fn()
-vi.mock('./dev-mocks.js', () => ({
-	createDevMailbox: () => devMailbox,
-	devMailboxEmail: (email?: string) => `resolved:${email}`,
-	devMailboxName: (email?: string) => devMailboxNameMock(email),
-}))
+// The local builds' mock mailbox (dev-mailbox.ts answers null in deployed builds).
+const devMocks = () => ({
+	devMocks: {
+		createDevMailbox: () => devMailbox,
+		devMailboxEmail: (email?: string) => `resolved:${email}`,
+		devMailboxName: (email?: string) => devMailboxNameMock(email),
+	},
+})
+vi.mock('./dev-mailbox.js', () => devMocks())
 
 const clientCtor = vi.fn()
 const forGrant = vi.fn()
@@ -105,6 +109,21 @@ describe('mailboxFromRequest()', () => {
 		const result = await mailboxFromRequest(req())
 		expect(result).not.toHaveProperty('displayName')
 		expect(result?.email).toBe('resolved:ada@ownmail.com')
+	})
+
+	it('reads the session in a build without the mock mailbox, whatever the environment says', async () => {
+		vi.doMock('./dev-mailbox.js', () => ({ devMocks: null }))
+		try {
+			usingDevMocksMock.mockResolvedValue(true)
+			getSessionMock.mockResolvedValue(null)
+			const { mailboxFromRequest } = await import('./nylas.js')
+
+			expect(await mailboxFromRequest(req())).toBeNull()
+			expect(getSessionMock).toHaveBeenCalled()
+			expect(usingDevMocksMock).not.toHaveBeenCalled()
+		} finally {
+			vi.doMock('./dev-mailbox.js', devMocks)
+		}
 	})
 
 	it('returns null when there is no server session (unauthenticated)', async () => {

@@ -1095,6 +1095,31 @@ describe('ComposeWindow send', () => {
 		expect(sendDraft.mock.calls[0][0].data).toMatchObject({ cc: 'c@d.com, e@f.com', bcc: 'g@h.com' })
 	})
 
+	it('names a draft’s own files on every save, so a cancelled or resent message keeps them', async () => {
+		// The draft a cancelled scheduled message (or Edit and resend) opens holds its files.
+		saveDraft.mockResolvedValue({ draftId: 'd0' })
+		renderWindow({
+			seed: draftSeed({
+				id: 'd0',
+				to: [{ email: 'a@b.com' }],
+				subject: 'Draft',
+				body: 'body',
+				attachments: [
+					{ id: 'a1', filename: 'plan.pdf', content_type: 'application/pdf', size: 3 },
+					{ id: 'a2', content_type: 'image/png', size: 3 },
+				],
+			}),
+		})
+		fireEvent.click(screen.getByRole('button', { name: /Send/ }))
+		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
+		expect(saveDraft.mock.calls[0][0].data).toMatchObject({
+			draftId: 'd0',
+			keepAttachments: ['plan.pdf', 'attachment'],
+		})
+		// The send restores whatever the draft holds after that save.
+		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('keepAttachments')
+	})
+
 	it('adds no Cc or Bcc to a draft that has none', async () => {
 		saveDraft.mockResolvedValue({ draftId: 'd0' })
 		renderWindow({
@@ -1105,6 +1130,7 @@ describe('ComposeWindow send', () => {
 		await waitFor(() => expect(sendDraft).toHaveBeenCalled())
 		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('cc')
 		expect(sendDraft.mock.calls[0][0].data).not.toHaveProperty('bcc')
+		expect(saveDraft.mock.calls[0][0].data).not.toHaveProperty('keepAttachments')
 	})
 
 	it('updates and sends the existing draft instead of creating a second message', async () => {

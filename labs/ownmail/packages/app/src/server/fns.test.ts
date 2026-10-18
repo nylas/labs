@@ -1202,6 +1202,147 @@ describe('copied recipients', () => {
 	})
 })
 
+describe('kept draft attachments', () => {
+	const file = (bytes: number[]) => new Response(new Uint8Array(bytes))
+	const notes = { filename: 'notes.txt', content_type: 'text/plain', content: 'BAUG' }
+
+	it('names the files a draft keeps, and refuses a list that is not one', () => {
+		expect(
+			fns.saveDraft.validator({
+				draftId: 'd1',
+				to: 'a@b.com',
+				subject: 's',
+				body: 'b',
+				keepAttachments: ['plan.pdf'],
+			}),
+		).toMatchObject({ keepAttachments: ['plan.pdf'] })
+		expect(
+			fns.saveDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b', keepAttachments: [] })
+				.keepAttachments,
+		).toBeUndefined()
+		for (const keepAttachments of ['plan.pdf', [5], [''], ['x'.repeat(256)], Array(11).fill('a.pdf')]) {
+			expect(() =>
+				fns.saveDraft.validator({ to: 'a@b.com', subject: 's', body: 'b', keepAttachments } as never),
+			).toThrow('Invalid attachments')
+		}
+	})
+
+	it('keeps a cancelled scheduled message’s files when its draft is edited and saved', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({
+			data: {
+				id: 'd-safe',
+				attachments: [
+					{ id: 'a1', filename: 'plan.pdf', content_type: 'application/pdf' },
+					{ id: 'a2', filename: 'old.txt', content_type: 'text/plain' },
+					{ id: 'a3', filename: ' sync-flow.png ' },
+					// A file the provider names nothing is the one the composer calls "attachment".
+					{ id: 'a4', content_type: 'text/calendar' },
+				],
+			},
+		})
+		mailbox.downloadAttachment.mockImplementation(async (id: string) =>
+			file(id === 'a1' ? [1, 2, 3] : [7, 8, 9]),
+		)
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd-safe' } })
+		await fns.saveDraft.handler({
+			data: {
+				draftId: 'd-safe',
+				toList: ['grace@example.com'],
+				subject: 'Re: Q3 offsite agenda',
+				body: 'Edited',
+				attachments: [notes],
+				keepAttachments: ['plan.pdf', 'sync-flow.png', 'attachment'],
+			},
+		})
+		expect(mailbox.getDraft).toHaveBeenCalledWith('d-safe')
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a1', 'd-safe')
+		expect(mailbox.downloadAttachment).toHaveBeenCalledWith('a3', 'd-safe')
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d-safe', {
+			to: [{ email: 'grace@example.com' }],
+			subject: 'Re: Q3 offsite agenda',
+			body: 'Edited',
+			attachments: [
+				{ filename: 'plan.pdf', content_type: 'application/pdf', content: 'AQID' },
+				{ filename: 'sync-flow.png', content_type: 'application/octet-stream', content: 'BwgJ' },
+				{ filename: 'attachment', content_type: 'text/calendar', content: 'BwgJ' },
+				notes,
+			],
+		})
+	})
+
+	it('keeps an Edit and resend draft’s files through later saves without doubling the composer’s', async () => {
+		resolveMailbox()
+		// The first save already put the composer's file on the draft, under new ids.
+		mailbox.getDraft.mockResolvedValue({
+			data: {
+				id: 'd-resend',
+				attachments: [
+					{ id: 'b1', filename: 'statement.pdf', content_type: 'application/pdf' },
+					{ id: 'b2', filename: 'notes.txt', content_type: 'text/plain' },
+				],
+			},
+		})
+		mailbox.downloadAttachment.mockImplementation(async () => file([1, 2, 3]))
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd-resend' } })
+		const save = (attachments?: (typeof notes)[]) =>
+			fns.saveDraft.handler({
+				data: {
+					draftId: 'd-resend',
+					toList: ['billing@meridianbank.com'],
+					subject: 'Statement',
+					body: 'Resending',
+					...(attachments ? { attachments } : {}),
+					keepAttachments: ['statement.pdf'],
+				},
+			})
+		const statement = { filename: 'statement.pdf', content_type: 'application/pdf', content: 'AQID' }
+		await save([notes])
+		expect(mailbox.updateDraft).toHaveBeenLastCalledWith(
+			'd-resend',
+			expect.objectContaining({ attachments: [statement, notes] }),
+		)
+		// The composer's file removed: only the kept file stays.
+		await save()
+		expect(mailbox.updateDraft).toHaveBeenLastCalledWith(
+			'd-resend',
+			expect.objectContaining({ attachments: [statement] }),
+		)
+		expect(mailbox.downloadAttachment).not.toHaveBeenCalledWith('b2', 'd-resend')
+	})
+
+	it('saves only the composer’s files when the kept ones are gone, and never reads a new draft', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({ data: { id: 'd1' } })
+		mailbox.updateDraft.mockResolvedValue({ data: { id: 'd1' } })
+		mailbox.createDraft.mockResolvedValue({ data: { id: 'd2' } })
+		const data = { toList: ['a@b.com'], subject: 's', body: 'b', keepAttachments: ['plan.pdf'] }
+		await fns.saveDraft.handler({ data: { ...data, draftId: 'd1' } })
+		expect(mailbox.updateDraft).toHaveBeenCalledWith('d1', {
+			to: [{ email: 'a@b.com' }],
+			subject: 's',
+			body: 'b',
+		})
+		await fns.saveDraft.handler({ data })
+		expect(mailbox.getDraft).toHaveBeenCalledTimes(1)
+		expect(mailbox.createDraft).toHaveBeenCalledWith({ to: [{ email: 'a@b.com' }], subject: 's', body: 'b' })
+	})
+
+	it('does not save over a draft whose kept file cannot be read', async () => {
+		resolveMailbox()
+		mailbox.getDraft.mockResolvedValue({
+			data: { id: 'd1', attachments: [{ id: 'a1', filename: 'plan.pdf' }] },
+		})
+		mailbox.downloadAttachment.mockResolvedValue(new Response(null, { status: 404 }))
+		await expect(
+			fns.saveDraft.handler({
+				data: { draftId: 'd1', toList: [], subject: 's', body: 'b', keepAttachments: ['plan.pdf'] },
+			}),
+		).rejects.toThrow(/Something went wrong/)
+		expect(mailbox.updateDraft).not.toHaveBeenCalled()
+	})
+})
+
 describe('sendDraft', () => {
 	it('validates the draft id', () => {
 		expect(fns.sendDraft.validator({ draftId: 'd1', to: 'a@b.com', subject: 's', body: 'b' })).toMatchObject({
@@ -1484,15 +1625,32 @@ describe('scheduled sends', () => {
 		expect(mailbox.deleteDraft).toHaveBeenCalledWith('d-safe')
 	})
 
-	it('reports the send as done even when the safety draft cannot be removed', async () => {
+	it('tries the safety draft’s removal again once, and says nothing when the retry removes it', async () => {
+		withFullScheduled()
+		recordWrites()
+		mailbox.deleteDraft.mockRejectedValueOnce(new Error('drafts busy')).mockResolvedValueOnce(undefined)
+		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
+			cancelledMessageId: 'm2',
+			message: { id: 'message-sent' },
+			folders: [],
+		})
+		expect(mailbox.deleteDraft).toHaveBeenCalledTimes(2)
+	})
+
+	it('reports the send as done, with a warning to delete the copy, when the safety draft stays', async () => {
 		withFullScheduled()
 		recordWrites()
 		mailbox.deleteDraft.mockRejectedValue(new Error('drafts unavailable'))
 		expect(await fns.sendScheduledNow.handler({ data: { messageId: 'm2' } })).toEqual({
 			cancelledMessageId: 'm2',
 			message: { id: 'message-sent' },
+			warning: fns.SCHEDULED_SEND_COPY_KEPT,
 			folders: [],
 		})
+		expect(mailbox.deleteDraft).toHaveBeenCalledTimes(2)
+		expect(fns.SCHEDULED_SEND_COPY_KEPT).toBe(
+			'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+		)
 	})
 
 	it('keeps the draft and names it when the send fails after the schedule is cancelled', async () => {

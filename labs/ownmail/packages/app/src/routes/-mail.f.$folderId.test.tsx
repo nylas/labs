@@ -2557,6 +2557,11 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 				draftId: 'd-unsent',
 				error: 'Couldn’t send. Saved as a draft.',
 			})
+			.mockResolvedValueOnce({
+				cancelledMessageId: 'msg-offsite',
+				message: { id: 'sent' },
+				warning: 'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			})
 		cancelScheduledSend
 			.mockResolvedValueOnce({ cancelledMessageId: 'msg-offsite', draftId: 'd-cancelled' })
 			.mockRejectedValueOnce(new Error('x'))
@@ -2599,6 +2604,16 @@ describe('MailFolderRouteScreen — day groups and bundles', () => {
 		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
 		fireEvent.click(await screen.findByRole('menuitem', { name: 'Cancel scheduled send' }))
 		expect(await within(row()).findByText('Action failed')).toBeInTheDocument()
+		// A send that went but left its safety copy in Drafts says so, and opens nothing.
+		await waitFor(() => expect(screen.queryByRole('menu')).not.toBeInTheDocument())
+		fireEvent.contextMenu(row(), { clientX: 10, clientY: 10 })
+		fireEvent.click(await screen.findByRole('menuitem', { name: 'Send now' }))
+		expect(
+			await within(row()).findByText(
+				'Sent. The safety copy in Drafts couldn’t be removed — delete it so it isn’t sent twice.',
+			),
+		).toBeInTheDocument()
+		expect(composeApi.openCompose).toHaveBeenCalledTimes(2)
 
 		// A row that sends nothing later offers neither.
 		const tokens = screen.getByRole('link', { name: /Open Tokens/ }).closest('[data-nav-row]') as HTMLElement

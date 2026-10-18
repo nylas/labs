@@ -24,7 +24,14 @@ const facts = (extra: Partial<MessageHeaderFacts> = {}): MessageHeaderFacts => (
 
 function renderNotices(
 	message: Partial<MailMessage>,
-	props: { prev?: MailMessage; facts?: MessageHeaderFacts; knownSenders?: Person[]; muted?: boolean } = {},
+	props: {
+		prev?: MailMessage
+		facts?: MessageHeaderFacts
+		knownSenders?: Person[]
+		muted?: boolean
+		checksUnavailable?: boolean
+		linksOff?: boolean
+	} = {},
 ) {
 	const onMuteThread = vi.fn()
 	const onAddBack = vi.fn()
@@ -36,6 +43,8 @@ function renderNotices(
 			facts={props.facts}
 			knownSenders={props.knownSenders ?? []}
 			muted={props.muted}
+			checksUnavailable={props.checksUnavailable}
+			linksOff={props.linksOff}
 			onMuteThread={onMuteThread}
 			onAddBack={onAddBack}
 		/>,
@@ -210,6 +219,37 @@ describe('MessageNotices', () => {
 		renderNotices({ from: [ALAN], to: [{ email: 'eng-all@vercel.com' }] })
 		expect(notes()[0]).toHaveTextContent('Sent to eng-all@, a mailing list. Mute thread')
 		expect(screen.queryByRole('link')).toBeNull()
+	})
+
+	it('offers no Leave list link while the sender’s links are disabled', () => {
+		const list = { to: [{ email: 'eng-all@vercel.com' }] }
+		const leave = { listId: 'eng-all.vercel.com', unsubscribeUrl: 'https://vercel.com/leave' }
+		const expectInert = () => {
+			const note = notes().find((candidate) => candidate.dataset.kind === 'mailing-list') as HTMLElement
+			expect(note).toHaveTextContent('Sent to eng-all@, a mailing list. Mute thread')
+			expect(note).not.toHaveTextContent('Leave list')
+			expect(screen.queryByRole('link')).toBeNull()
+			// Muting is OwnMail's own control, so it stays.
+			expect(screen.getByRole('button', { name: 'Mute thread' })).toBeInTheDocument()
+			cleanup()
+		}
+		// Failed sender checks.
+		renderNotices({ from: [ALAN], ...list }, { facts: facts({ ...leave, authFailed: true }) })
+		expectInert()
+		// A lookalike of someone this mailbox knows.
+		renderNotices(
+			{ from: [{ name: 'Meridian Bank', email: 'alerts@meridian-secure.co' }], ...list },
+			{ facts: facts(leave), knownSenders: [MERIDIAN] },
+		)
+		expectInert()
+		// Checks that could not be run.
+		renderNotices({ from: [ALAN], ...list }, { facts: facts(leave), checksUnavailable: true })
+		expectInert()
+		// The reader's own decision (checks still running) wins over what the notice can see.
+		renderNotices({ from: [ALAN], ...list }, { facts: facts(leave), linksOff: true })
+		expectInert()
+		renderNotices({ from: [ALAN], ...list }, { facts: facts(leave), linksOff: false })
+		expect(screen.getByRole('link', { name: 'Leave list' })).toHaveAttribute('href', leave.unsubscribeUrl)
 	})
 
 	it('offers Unmute thread on a muted thread, toggling the same way', () => {

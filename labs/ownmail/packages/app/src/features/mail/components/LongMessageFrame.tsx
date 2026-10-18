@@ -1,4 +1,5 @@
 import { type ReactNode, useCallback, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { accountKey } from '#shared/lib/account-key'
 import { cn } from '#shared/lib/utils'
 import { readingStats } from '../lib/thread-reading-model.js'
 import { ThreadColumn } from './ThreadColumn.js'
@@ -8,21 +9,33 @@ export const LONG_MESSAGE_WORDS = 1500
 /** A heading counts as the current section once it is this close to the top of the view. */
 const CURRENT_SECTION_SLACK = 96
 
-const positionKey = (messageId: string): string => `ownmail:reading-position:${messageId}`
+/**
+ * Where a message's reading position is kept: per mailbox, like the mail
+ * cache and muted threads, so one inbox never resumes at another's place.
+ * None without a usable mailbox address; the position is then not kept.
+ */
+const positionKey = (account: string, messageId: string): string | null => {
+	const key = accountKey(account)
+	return key ? `ownmail:reading-position:${key}:${messageId}` : null
+}
 
-/** Where a reader stopped in a message: how far past its top the view was, in pixels. */
-export function readSavedOffset(messageId: string): number {
+/** Where a reader stopped in a message of a mailbox: how far past its top the view was, in pixels. */
+export function readSavedOffset(account: string, messageId: string): number {
+	const key = positionKey(account, messageId)
+	if (!key) return 0
 	try {
-		const saved = Number(sessionStorage.getItem(positionKey(messageId)))
+		const saved = Number(sessionStorage.getItem(key))
 		return Number.isFinite(saved) && saved > 0 ? saved : 0
 	} catch {
 		return 0
 	}
 }
 
-function saveOffset(messageId: string, offset: number): void {
+function saveOffset(account: string, messageId: string, offset: number): void {
+	const key = positionKey(account, messageId)
+	if (!key) return
 	try {
-		sessionStorage.setItem(positionKey(messageId), String(Math.max(0, Math.round(offset))))
+		sessionStorage.setItem(key, String(Math.max(0, Math.round(offset))))
 	} catch {}
 }
 
@@ -56,11 +69,14 @@ export function headingNodes(root: HTMLElement, headings: string[]): Array<Eleme
  * returns to where the reader stopped. Shorter messages pass through as is.
  */
 export function LongMessageFrame({
+	account,
 	messageId,
 	text,
 	headings,
 	children,
 }: {
+	/** The mailbox the message is in: its reading position is kept for that mailbox only. */
+	account: string
 	messageId: string
 	text: string
 	headings: string[]
@@ -69,18 +85,20 @@ export function LongMessageFrame({
 	const stats = useMemo(() => readingStats(text), [text])
 	if (stats.words <= LONG_MESSAGE_WORDS) return <>{children}</>
 	return (
-		<LongMessageLayout messageId={messageId} minutes={stats.minutes} headings={headings}>
+		<LongMessageLayout account={account} messageId={messageId} minutes={stats.minutes} headings={headings}>
 			{children}
 		</LongMessageLayout>
 	)
 }
 
 function LongMessageLayout({
+	account,
 	messageId,
 	minutes,
 	headings,
 	children,
 }: {
+	account: string
 	messageId: string
 	minutes: number
 	headings: string[]
@@ -108,14 +126,14 @@ function LongMessageLayout({
 		const read = travel > 0 ? Math.min(1, Math.max(0, (view.top - rect.top) / travel)) : 1
 		setProgress(read)
 		// Past its end the view is still where the message was finished: keep that, so a return can reach it.
-		if (restored.current) saveOffset(messageId, Math.min(view.top - rect.top, Math.max(0, travel)))
+		if (restored.current) saveOffset(account, messageId, Math.min(view.top - rect.top, Math.max(0, travel)))
 		const nodes = headingNodes(root, headings)
 		let section = -1
 		nodes.forEach((node, index) => {
 			if (node && node.getBoundingClientRect().top <= view.top + CURRENT_SECTION_SLACK) section = index
 		})
 		setCurrent(section)
-	}, [headings, messageId, viewport])
+	}, [account, headings, messageId, viewport])
 
 	// Return to where the reader stopped once the message has its height, then follow the scroll.
 	useLayoutEffect(() => {
@@ -129,7 +147,7 @@ function LongMessageLayout({
 		}
 		const restore = () => {
 			if (restored.current) return
-			const offset = readSavedOffset(messageId)
+			const offset = readSavedOffset(account, messageId)
 			const view = viewport(parent)
 			const rect = root.getBoundingClientRect()
 			if (offset > 0 && rect.height < offset) return
@@ -153,7 +171,7 @@ function LongMessageLayout({
 			observer.disconnect()
 			target.removeEventListener('scroll', schedule)
 		}
-	}, [measure, messageId, viewport])
+	}, [account, measure, messageId, viewport])
 
 	/** Brings a section's heading to the top of the view, under the progress bar while it is pinned. */
 	const goTo = (index: number) => {

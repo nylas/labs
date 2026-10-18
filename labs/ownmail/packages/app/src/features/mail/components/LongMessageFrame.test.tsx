@@ -12,6 +12,7 @@ import {
 
 const LONG = Array.from({ length: LONG_MESSAGE_WORDS + 400 }, (_, index) => `word${index}`).join(' ')
 const HEADINGS = ['Scope', 'Payment', 'Liability']
+const ACCOUNT = 'Ada@OwnMail.com'
 
 type Rect = { top: number; height: number; bottom?: number }
 const rects = new Map<Element, Rect>()
@@ -77,7 +78,7 @@ function Body() {
 describe('LongMessageFrame', () => {
 	it('passes a message under 1,500 words through unchanged', () => {
 		const { container } = render(
-			<LongMessageFrame messageId="short" text="A short note." headings={HEADINGS}>
+			<LongMessageFrame account={ACCOUNT} messageId="short" text="A short note." headings={HEADINGS}>
 				<p>A short note.</p>
 			</LongMessageFrame>,
 		)
@@ -87,7 +88,7 @@ describe('LongMessageFrame', () => {
 	it('shows reading time, progress and the outline, and follows the scroll inside its pane', async () => {
 		render(
 			<div data-testid="pane" style={{ overflowY: 'auto' }}>
-				<LongMessageFrame messageId="msa" text={LONG} headings={HEADINGS}>
+				<LongMessageFrame account={ACCOUNT} messageId="msa" text={LONG} headings={HEADINGS}>
 					<Body />
 				</LongMessageFrame>
 			</div>,
@@ -118,7 +119,7 @@ describe('LongMessageFrame', () => {
 		for (const current of screen.getAllByRole('button', { name: '2 Payment' })) {
 			expect(current).toHaveAttribute('aria-current', 'location')
 		}
-		expect(sessionStorage.getItem('ownmail:reading-position:msa')).toBe('400')
+		expect(sessionStorage.getItem('ownmail:reading-position:ada@ownmail.com:msa')).toBe('400')
 
 		// The heading lands under the pinned progress bar and the toolbar the pane scrolls under, not behind them.
 		const paneScroll = vi.fn()
@@ -143,7 +144,7 @@ describe('LongMessageFrame', () => {
 	it('reads 0% with the message opened at its top, and 100% once it all fits above the bottom', () => {
 		render(
 			<div data-testid="pane" style={{ overflowY: 'auto' }}>
-				<LongMessageFrame messageId="top" text={LONG} headings={HEADINGS}>
+				<LongMessageFrame account={ACCOUNT} messageId="top" text={LONG} headings={HEADINGS}>
 					<Body />
 				</LongMessageFrame>
 			</div>,
@@ -171,11 +172,29 @@ describe('LongMessageFrame', () => {
 		expect(screen.getByText('8 min read · 100%')).toBeInTheDocument()
 	})
 
+	it('keeps no position for a message read without a usable mailbox', () => {
+		render(
+			<div data-testid="pane" style={{ overflowY: 'auto' }}>
+				<LongMessageFrame account="" messageId="nobody" text={LONG} headings={HEADINGS}>
+					<Body />
+				</LongMessageFrame>
+			</div>,
+		)
+		const pane = screen.getByTestId('pane')
+		rectOf(pane, { top: 100, height: 500 })
+		rectOf(document.querySelector('[data-slot="long-message"]') as Element, { top: -300, height: 2000 })
+		act(() => {
+			pane.dispatchEvent(new Event('scroll'))
+		})
+		expect(screen.getByText('8 min read · 27%')).toBeInTheDocument()
+		expect(sessionStorage.length).toBe(0)
+	})
+
 	it('returns to where the reader stopped once the message is tall enough', () => {
-		sessionStorage.setItem('ownmail:reading-position:msa', '400')
+		sessionStorage.setItem('ownmail:reading-position:ada@ownmail.com:msa', '400')
 		render(
 			<div data-testid="pane" style={{ overflowY: 'scroll' }}>
-				<LongMessageFrame messageId="msa" text={LONG} headings={HEADINGS}>
+				<LongMessageFrame account={ACCOUNT} messageId="msa" text={LONG} headings={HEADINGS}>
 					<Body />
 				</LongMessageFrame>
 			</div>,
@@ -206,7 +225,7 @@ describe('LongMessageFrame', () => {
 		const scrollBy = vi.fn()
 		vi.stubGlobal('scrollBy', scrollBy)
 		render(
-			<LongMessageFrame messageId="page" text={LONG} headings={[]}>
+			<LongMessageFrame account={ACCOUNT} messageId="page" text={LONG} headings={[]}>
 				<p>Words.</p>
 			</LongMessageFrame>,
 		)
@@ -225,7 +244,7 @@ describe('LongMessageFrame', () => {
 		const scrollBy = vi.fn()
 		vi.stubGlobal('scrollBy', scrollBy)
 		render(
-			<LongMessageFrame messageId="page-outline" text={LONG} headings={HEADINGS}>
+			<LongMessageFrame account={ACCOUNT} messageId="page-outline" text={LONG} headings={HEADINGS}>
 				<Body />
 			</LongMessageFrame>,
 		)
@@ -237,7 +256,7 @@ describe('LongMessageFrame', () => {
 	it('saves the end of the message once the view scrolls past it, and returns there', () => {
 		render(
 			<div data-testid="pane" style={{ overflowY: 'auto' }}>
-				<LongMessageFrame messageId="past" text={LONG} headings={HEADINGS}>
+				<LongMessageFrame account={ACCOUNT} messageId="past" text={LONG} headings={HEADINGS}>
 					<Body />
 				</LongMessageFrame>
 			</div>,
@@ -252,12 +271,12 @@ describe('LongMessageFrame', () => {
 		})
 		expect(screen.getByText('8 min read · 100%')).toBeInTheDocument()
 		// Its end at the bottom of the view: 2,000 tall less the 500 the view shows.
-		expect(sessionStorage.getItem('ownmail:reading-position:past')).toBe('1500')
+		expect(sessionStorage.getItem('ownmail:reading-position:ada@ownmail.com:past')).toBe('1500')
 		cleanup()
 
 		render(
 			<div data-testid="pane" style={{ overflowY: 'scroll' }}>
-				<LongMessageFrame messageId="past" text={LONG} headings={HEADINGS}>
+				<LongMessageFrame account={ACCOUNT} messageId="past" text={LONG} headings={HEADINGS}>
 					<Body />
 				</LongMessageFrame>
 			</div>,
@@ -277,9 +296,9 @@ describe('LongMessageFrame', () => {
 	})
 
 	it('keeps the saved position until the message is tall enough to return to it', () => {
-		sessionStorage.setItem('ownmail:reading-position:tall', '5000')
+		sessionStorage.setItem('ownmail:reading-position:ada@ownmail.com:tall', '5000')
 		render(
-			<LongMessageFrame messageId="tall" text={LONG} headings={HEADINGS}>
+			<LongMessageFrame account={ACCOUNT} messageId="tall" text={LONG} headings={HEADINGS}>
 				<Body />
 			</LongMessageFrame>,
 		)
@@ -287,14 +306,14 @@ describe('LongMessageFrame', () => {
 		act(() => {
 			window.dispatchEvent(new Event('scroll'))
 		})
-		expect(sessionStorage.getItem('ownmail:reading-position:tall')).toBe('5000')
+		expect(sessionStorage.getItem('ownmail:reading-position:ada@ownmail.com:tall')).toBe('5000')
 	})
 
 	it('restores nothing for a message read from the top', () => {
 		const scrollBy = vi.fn()
 		vi.stubGlobal('scrollBy', scrollBy)
 		render(
-			<LongMessageFrame messageId="fresh" text={LONG} headings={['Missing']}>
+			<LongMessageFrame account={ACCOUNT} messageId="fresh" text={LONG} headings={['Missing']}>
 				<p>Words.</p>
 			</LongMessageFrame>,
 		)
@@ -304,13 +323,20 @@ describe('LongMessageFrame', () => {
 })
 
 describe('readSavedOffset', () => {
+	it('keeps each mailbox’s position apart, and none without a usable mailbox', () => {
+		sessionStorage.setItem('ownmail:reading-position:ada@ownmail.com:a', '300')
+		expect(readSavedOffset(' ada@ownmail.com ', 'a')).toBe(300)
+		expect(readSavedOffset('grace@vercel.com', 'a')).toBe(0)
+		expect(readSavedOffset('', 'a')).toBe(0)
+	})
+
 	it('reads a saved position, ignoring junk and blocked storage', () => {
-		sessionStorage.setItem('ownmail:reading-position:a', 'junk')
-		expect(readSavedOffset('a')).toBe(0)
+		sessionStorage.setItem('ownmail:reading-position:ada@ownmail.com:a', 'junk')
+		expect(readSavedOffset(ACCOUNT, 'a')).toBe(0)
 		vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
 			throw new Error('blocked')
 		})
-		expect(readSavedOffset('a')).toBe(0)
+		expect(readSavedOffset(ACCOUNT, 'a')).toBe(0)
 	})
 })
 

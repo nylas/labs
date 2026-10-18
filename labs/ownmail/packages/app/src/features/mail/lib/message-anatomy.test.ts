@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import type { MailMessage, MessageHeaderFacts } from '../state/mail-queries.js'
 import {
 	copyableAddresses,
@@ -77,6 +77,25 @@ describe('time zones', () => {
 		expect(zoneOffsetMinutes(JANUARY, 'America/Los_Angeles')).toBe(-480)
 		expect(zoneOffsetMinutes(WED, 'Asia/Kolkata')).toBe(330)
 		expect(zoneOffsetMinutes(WED, 'UTC')).toBe(0)
+	})
+
+	it('reads whatever the runtime’s ICU writes for a zone offset, signed or not', () => {
+		// "GMT" (UTC), "GMT+05:30" and "GMT−07:00" (a true minus sign) vary by ICU
+		// version, so each shape is checked whatever this machine's zone data writes.
+		const parts = vi.spyOn(Intl.DateTimeFormat.prototype, 'formatToParts')
+		try {
+			for (const [value, minutes] of [
+				['GMT', 0],
+				['GMT+05:30', 330],
+				['GMT-07:00', -420],
+				['GMT−08:00', -480],
+			] as const) {
+				parts.mockReturnValueOnce([{ type: 'timeZoneName', value }])
+				expect(zoneOffsetMinutes(WED, 'Asia/Kolkata')).toBe(minutes)
+			}
+		} finally {
+			parts.mockRestore()
+		}
 	})
 
 	it('names an offset after the first well-known zone that has it then', () => {

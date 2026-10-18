@@ -20,10 +20,15 @@ const entries = [
 ]
 const sourceRoot = join(appRoot, 'src')
 
+// The local mock app's mailbox (`pnpm dev:ui`) is repository-only: the source
+// imports it through `server/dev-mailbox.ts`, which answers null without it.
+const REPOSITORY_ONLY_SOURCES = new Set(['server/dev-mocks.ts'])
+
 function includeProductionSource(source) {
 	const sourcePath = relative(sourceRoot, source).split(sep).join('/')
 	if (!sourcePath) return true
 	return !(
+		REPOSITORY_ONLY_SOURCES.has(sourcePath) ||
 		/(?:^|\/)(?:__tests__|real-email-fixtures)(?:\/|$)/.test(sourcePath) ||
 		/\.(?:test|spec)\.[cm]?[jt]sx?$/.test(sourcePath) ||
 		/\.fixture\./.test(sourcePath)

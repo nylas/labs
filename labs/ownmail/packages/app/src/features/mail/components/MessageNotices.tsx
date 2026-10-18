@@ -143,7 +143,7 @@ export function senderCheckNotice({
  * a sender who failed checks or only looks like someone you know (red, with
  * links disabled), someone the sender dropped from a reply all, and a mailing
  * list with ways to mute (or, when `muted`, unmute) the thread or leave the
- * list. The mute control is a toggle whose label says what it will do, so it
+ * list (the sender's own link, so offered only while their links work). The mute control is a toggle whose label says what it will do, so it
  * carries no `aria-pressed` as well.
  */
 export function MessageNotices({
@@ -155,6 +155,7 @@ export function MessageNotices({
 	muted = false,
 	listNotice = true,
 	checksUnavailable = false,
+	linksOff,
 	onMuteThread,
 	onAddBack,
 }: {
@@ -171,6 +172,12 @@ export function MessageNotices({
 	listNotice?: boolean
 	/** The thread's sender checks could not be looked up and say nothing about this message. */
 	checksUnavailable?: boolean
+	/**
+	 * Whether the message's links are disabled (`linksDisabled`, which also
+	 * counts checks still running); the sender's "Leave list" link is one of
+	 * them. Unset, it is decided from what this notice knows.
+	 */
+	linksOff?: boolean
 	/** Toggles the thread's muted state. */
 	onMuteThread(): void
 	/** Starts a reply that adds a dropped person back; none while replies are paused (part of the thread did not load). */
@@ -180,7 +187,10 @@ export function MessageNotices({
 	const replyTo = replyToAddress(message, facts, owner)
 	const removed = removedFromReply(message, prev, owner)
 	const list = sender.isOwner || !listNotice ? null : mailingList(message, facts, owner)
-	const leaveHref = facts?.unsubscribeUrl ?? facts?.unsubscribeMailto
+	// "Leave list" is a link the sender wrote: it goes with the rest of their links.
+	const inert =
+		linksOff ?? linksDisabled(facts, isLookalikeSender(message, knownSenders, owner), checksUnavailable)
+	const leaveHref = inert ? undefined : (facts?.unsubscribeUrl ?? facts?.unsubscribeMailto)
 
 	const notices: ReactNode[] = []
 	if (replyTo) {

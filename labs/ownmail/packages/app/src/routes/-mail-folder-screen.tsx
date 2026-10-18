@@ -1048,7 +1048,9 @@ const ThreadRow = memo(function ThreadRow({
 				const outcome = await runScheduledSend(queryClient ?? undefined, { messageId: scheduled.id, action })
 				// The whole message is kept as a draft (cancelled, or not sent now) and opens in the composer.
 				if (outcome.draftId) await openCompose({ kind: 'draft', draftId: outcome.draftId })
-				if (outcome.error) setActionError(outcome.error)
+				// Said either way: why it is a draft, or that a sent message's copy is still in Drafts.
+				const said = outcome.error ?? outcome.warning
+				if (said) setActionError(said)
 			}),
 	}
 

@@ -52,6 +52,8 @@ type DraftFields = {
 	body: string
 	replyToMessageId?: string
 	attachments?: OutboundAttachment[]
+	/** Names of files the draft already holds; the composer carries them, the server keeps them. */
+	keepAttachments?: string[]
 }
 
 type SendDraftFields = DraftFields & { draftId: string }
@@ -446,8 +448,9 @@ export type ScheduledSendAction = 'send-now' | 'cancel'
  * How a scheduled-send action ended: `draftId` is a draft holding the whole
  * message for the composer to open (a cancelled message, or one that could not
  * be sent now), and `error` says why it is a draft when that was not asked for.
+ * `warning` is said after a send that went but left its safety copy in Drafts.
  */
-export type ScheduledSendOutcome = { draftId?: string; error?: string }
+export type ScheduledSendOutcome = { draftId?: string; error?: string; warning?: string }
 
 /**
  * Sends a scheduled message now or cancels it. Either changes which messages
@@ -461,7 +464,12 @@ export async function runScheduledSend(
 	let outcome: ScheduledSendOutcome
 	if (action === 'send-now') {
 		const receipt = await sendScheduledNow({ data: { messageId } })
-		outcome = 'error' in receipt ? { draftId: receipt.draftId, error: receipt.error } : {}
+		outcome =
+			'error' in receipt
+				? { draftId: receipt.draftId, error: receipt.error }
+				: receipt.warning
+					? { warning: receipt.warning }
+					: {}
 	} else {
 		const receipt = await cancelScheduledSend({ data: { messageId } })
 		outcome = { draftId: receipt.draftId }
@@ -481,8 +489,8 @@ export function useScheduledSendMutation() {
 
 /**
  * The reader's scheduled-send handler: runs the action and answers the draft
- * the composer should open, if any. Failures, and a send that became a draft,
- * are reported through `onError`.
+ * the composer should open, if any. Failures, a send that became a draft, and
+ * a send whose safety copy stayed in Drafts are reported through `onError`.
  */
 export function useScheduledSendAction(onError: (message: string) => void) {
 	const { mutateAsync } = useScheduledSendMutation()
@@ -490,7 +498,8 @@ export function useScheduledSendAction(onError: (message: string) => void) {
 		(messageId: string, action: ScheduledSendAction): Promise<string | undefined> =>
 			mutateAsync({ messageId, action }).then(
 				(outcome) => {
-					if (outcome.error) onError(outcome.error)
+					const said = outcome.error ?? outcome.warning
+					if (said) onError(said)
 					return outcome.draftId
 				},
 				() => {
