@@ -1,5 +1,18 @@
 # @ownmail/app
 
+## 0.23.0
+
+### Minor Changes
+
+- bc2255b: Redesign the reader for natural reading of long threads: read history folds away, a "new since" divider marks where you left off, and every message has its own reply and forward. A thread map, catch-up facts and a files shelf help you find your place, and clearer message headers include sender checks. The thread list is richer too, with day groups, signals, inline RSVP, muted threads and bundles, and empty, failed and partially loaded states are now designed rather than blank. A scheduled message can be sent now or cancelled from the reader and the thread list. Links in mail from a sender who failed checks or imitates someone you know are disabled in every view, and stay disabled until a message's sender checks are known. Edit and resend reopens a bounced message as a draft with its files, addressed to the recipient that bounced.
+- e6531d2: Resize the mail reading pane by dragging (or arrow-keying) the divider between the thread list and the conversation in vertical and horizontal splits; the size is remembered, double-clicking the divider restores the default, and dragging the list to near zero switches the reading pane to "No split".
+
+### Patch Changes
+
+- 4791c85: Load remote email images from CDN hosts behind a CNAME on Cloudflare deployments instead of showing "Image unavailable".
+- Updated dependencies [bc2255b]
+  - @nylas-labs/cli-kit@0.10.0
+
 ## 0.22.0
 
 ### Minor Changes
